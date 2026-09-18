@@ -1,0 +1,23 @@
+[book]
+title = "dermestes"
+description = "Finds Python abstractions that have not earned their keep"
+authors = ["mojzis"]
+language = "en"
+src = "src"
+
+[build]
+build-dir = "book/html"
+
+[output.html]
+site-url = "/dermestes/"
+git-repository-url = "https://github.com/mojzis/dermestes"
+edit-url-template = "https://github.com/mojzis/dermestes/edit/main/docs/{path}"
+default-theme = "navy"
+preferred-dark-theme = "navy"
+additional-css = ["custom.css"]
+additional-js = ["mermaid.min.js", "mermaid-init.js", "version.js"]
+
+[preprocessor]
+
+[preprocessor.mermaid]
+command = "mdbook-mermaid"

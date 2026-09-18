@@ -1,0 +1,133 @@
+//! Command-line surface. `main.rs` parses [`Cli`] and calls [`Cli::run`].
+//!
+//! The flags are exactly the constitution's interface contract; nothing is
+//! added until a real repository needs it.
+
+use std::io::Write;
+
+use anyhow::{bail, Result};
+use clap::{Parser, Subcommand, ValueEnum};
+
+use crate::guide;
+
+const ABOUT: &str = "Finds Python abstractions that have not earned their keep.";
+
+const LONG_ABOUT: &str = "\
+dermestes reports abstractions with a single user — an ABC or Protocol with one \
+implementation, a function with one caller, a parameter nobody varies — as \
+deletion candidates, each with its evidence and a concrete simplification.
+
+By default it reports only what the working tree's changes (staged plus \
+unstaged, against HEAD) introduced. The whole repository is always indexed, \
+because counting users needs it.";
+
+const AFTER_LONG_HELP: &str = "\
+`dermestes guide` prints agent-facing instructions: `setup` until pyproject.toml \
+has a [tool.dermestes] table, `triage` after; `tune` only when asked for.
+
+Exit codes:
+
+  0  no findings (and no output)
+  1  findings reported
+  2  usage or internal error";
+
+/// Top-level arguments. With no subcommand, dermestes runs its checks.
+#[derive(Parser, Debug)]
+#[command(name = "dermestes", version, about = ABOUT, long_about = LONG_ABOUT)]
+#[command(after_long_help = AFTER_LONG_HELP)]
+pub struct Cli {
+    /// Report findings introduced since <REF> instead of since HEAD.
+    #[arg(long, value_name = "REF", conflicts_with = "all")]
+    pub base: Option<String>,
+
+    /// Report every finding in the repository, not only those a diff introduced.
+    #[arg(long)]
+    pub all: bool,
+
+    /// Output format.
+    #[arg(long, value_enum, default_value_t = Format::Text)]
+    pub format: Format,
+
+    #[command(subcommand)]
+    pub command: Option<Command>,
+}
+
+/// How findings are written to stdout.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum Format {
+    /// One block per finding, sorted by path then line.
+    Text,
+    /// The same content, machine-readable.
+    Json,
+}
+
+/// Subcommands. Running checks is the default and has none.
+#[derive(Subcommand, Debug)]
+pub enum Command {
+    /// Print agent-facing instructions.
+    Guide {
+        /// Which instructions to print; detected from ./pyproject.toml if omitted.
+        #[arg(value_enum)]
+        topic: Option<guide::Topic>,
+    },
+}
+
+/// What a completed run found. Errors are the `Err` side of [`Cli::run`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Outcome {
+    /// Nothing to report; nothing was printed.
+    Clean,
+    /// At least one finding was printed.
+    Findings,
+}
+
+impl Cli {
+    /// Run the parsed command, writing its output to `out`.
+    pub fn run(self, out: &mut impl Write) -> Result<Outcome> {
+        if let Some(Command::Guide { topic }) = self.command {
+            write!(out, "{}", guide_output(topic))?;
+            return Ok(Outcome::Clean);
+        }
+        bail!("no checks are implemented yet (phase 1 adds `one-impl`)")
+    }
+}
+
+/// Resolve the guide topic and render it. Detection reads the current
+/// directory only; an unreadable one counts as "not configured".
+fn guide_output(topic: Option<guide::Topic>) -> String {
+    if let Some(topic) = topic {
+        return guide::render(topic, guide::Selection::Explicit);
+    }
+    let configured = std::env::current_dir().is_ok_and(|cwd| guide::is_configured(&cwd));
+    guide::render(guide::auto_topic(configured), guide::Selection::Auto(configured))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn base_and_all_are_mutually_exclusive() {
+        let err = Cli::try_parse_from(["dermestes", "--all", "--base", "main"])
+            .expect_err("--all with --base must be rejected");
+        assert_eq!(err.kind(), clap::error::ErrorKind::ArgumentConflict, "got: {err}");
+    }
+
+    #[test]
+    fn bare_invocation_is_diff_mode_in_text() {
+        let cli = Cli::try_parse_from(["dermestes"]).expect("bare invocation parses");
+        assert!(cli.command.is_none(), "no subcommand means run the checks");
+        assert!(!cli.all, "diff mode is the default");
+        assert_eq!(cli.base, None, "HEAD is the default base");
+        assert_eq!(cli.format, Format::Text, "text is the default format");
+    }
+
+    #[test]
+    fn guide_takes_an_optional_topic() {
+        let cli = Cli::try_parse_from(["dermestes", "guide"]).expect("bare guide parses");
+        assert!(matches!(cli.command, Some(Command::Guide { topic: None })), "no topic = detect");
+        let cli = Cli::try_parse_from(["dermestes", "guide", "tune"]).expect("a topic parses");
+        assert!(matches!(cli.command, Some(Command::Guide { topic: Some(guide::Topic::Tune) })));
+        assert!(Cli::try_parse_from(["dermestes", "guide", "how"]).is_err(), "unknown topic");
+    }
+}
