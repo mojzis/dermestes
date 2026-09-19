@@ -222,7 +222,7 @@ impl<'a> Callers<'a> {
         rest.iter().fold(head, |target, part| self.resolver.member(target, part))
     }
 
-    fn resolve_call(&self, call: &'a Call) -> Resolved<'a> {
+    pub(crate) fn resolve_call(&self, call: &'a Call) -> Resolved<'a> {
         let init = |class: ClassId| match self.lookup(class, "__init__", 0) {
             Lookup::Found(id) => Resolved::Function(id, 1),
             Lookup::Unknown => Resolved::Possible("__init__"),
@@ -267,6 +267,20 @@ impl<'a> Callers<'a> {
 
     /// Precision guards that do not depend on the call sites' values.
     pub(crate) fn exempt(&self, id: FnId, config: &Config) -> bool {
+        self.guarded(id, config) || self.overrides(id)
+    }
+
+    /// A method a base may define: an override, or a method of a class with a
+    /// base we cannot follow.
+    pub(crate) fn overrides(&self, id: FnId) -> bool {
+        let function = &self.index.functions[id];
+        function
+            .class
+            .is_some_and(|class| self.lookup_bases(class, &function.name, 0) != Lookup::Missing)
+    }
+
+    /// Every guard of [`Self::exempt`] but [`Self::overrides`].
+    pub(crate) fn guarded(&self, id: FnId, config: &Config) -> bool {
         let function = &self.index.functions[id];
         let file = &self.index.files[function.file];
         let name = function.name.as_str();
@@ -288,10 +302,24 @@ impl<'a> Callers<'a> {
             || self.overridden.contains(&id)
             || self.dynamic.contains(&id)
             || matches_any(&file.relative, &config.public)
-            || function.class.is_some_and(|class| {
-                self.protocols.contains(&class)
-                    || self.lookup_bases(class, name, 0) != Lookup::Missing
-            })
+            || function.class.is_some_and(|class| self.protocols.contains(&class))
+    }
+
+    /// The function a `[project.scripts]` or `[project.entry-points]` value
+    /// (`pkg.cli:main`, `pkg.cli:App.run`) names.
+    pub(crate) fn entry_point(&self, value: &str) -> Option<FnId> {
+        let value = value.split('[').next().unwrap_or(value).trim();
+        let (module, attr) = value.split_once(':')?;
+        let target = attr
+            .trim()
+            .split('.')
+            .fold(Target::Module(module.trim().to_owned()), |target, part| {
+                self.resolver.member(target, part)
+            });
+        match target {
+            Target::Function(id) => Some(id),
+            _ => None,
+        }
     }
 }
 
@@ -305,8 +333,17 @@ fn ignored(decorator: &str, config: &Config) -> bool {
         })
 }
 
-enum Resolved<'a> {
+pub(crate) enum Resolved<'a> {
     Function(FnId, usize),
     Possible(&'a str),
     Nothing,
+}
+
+/// `path:line` sites for a suggestion: up to three, then `+N more`.
+pub(crate) fn listed(sites: &[String]) -> String {
+    let mut listed: Vec<String> = sites.iter().take(3).cloned().collect();
+    if sites.len() > 3 {
+        listed.push(format!("+{} more", sites.len() - 3));
+    }
+    listed.join(", ")
 }

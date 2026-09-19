@@ -16,7 +16,8 @@ disable = ["one-impl"]
   it replaces the defaults, so repeat any you still want.
 - `test-paths`: files whose code is counted as tests, never as targets.
 - `ignore-decorators`: decorators that no longer exempt a function from
-  `const-param`, by dotted name or suffix (`cache` covers `functools.cache`).
+  `const-param` or forward `pass-through`, by dotted name or suffix (`cache`
+  covers `functools.cache`).
 - `public`: globs treated as public API and exempt.
 - `disable`: check ids to skip.
 
@@ -31,11 +32,15 @@ to `getattr`, `setattr`, `hasattr`, `patch` or `patch.object` (a dotted path
 counts by its last part), or used as a string key in a registry dict
 (`{"csv": CsvExporter}`). Docstrings and string type annotations do not count.
 
-`const-param` also exempts decorated functions (unless `ignore-decorators`
-lists every decorator), functions used as a value anywhere (`register(f)`,
-`x.f` without a call), overrides, abstract and Protocol methods, functions
-called only under `if __name__ == "__main__":`, constants a test patches, and
-every function of a module or class `getattr` reads a computed name from.
+`const-param` and `pass-through` also exempt decorated functions (unless
+`ignore-decorators` lists every decorator), functions used as a value anywhere
+(`register(f)`, `x.f` without a call), overrides, abstract and Protocol
+methods, functions called only under `if __name__ == "__main__":`, and every
+function of a module or class `getattr` reads a computed name from.
+`const-param` also exempts constants a test patches; `pass-through` also
+exempts functions named in `[project.scripts]` or `[project.entry-points]`
+of any `pyproject.toml`, and anything a test calls. Suppress a deliberate
+wrapper with `keep`, or `disable = ["pass-through"]`.
 
 A library's public functions are called from outside the repository. List
 their modules in `public` rather than keeping each one.

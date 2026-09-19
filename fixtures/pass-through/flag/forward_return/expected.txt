@@ -1,0 +1,3 @@
+pass-through entries.py:5 resolve_relation
+  form: forward → entries.py:1 resolve_entry; calls: 1 prod, 0 test
+  suggest: call resolve_entry directly at entries.py:11, delete resolve_relation

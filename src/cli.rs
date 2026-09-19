@@ -15,7 +15,7 @@ use serde::Serialize;
 
 use crate::config::Config;
 use crate::index::{Index, Parsed};
-use crate::{const_param, discovery, git, guide, one_impl};
+use crate::{const_param, discovery, git, guide, one_impl, pass_through};
 
 const ABOUT: &str = "Finds Python abstractions that have not earned their keep.";
 
@@ -85,6 +85,7 @@ pub enum Command {
 pub enum Finding {
     OneImpl(one_impl::Finding),
     ConstParam(const_param::Finding),
+    PassThrough(pass_through::Finding),
 }
 
 impl Finding {
@@ -92,6 +93,7 @@ impl Finding {
         match self {
             Self::OneImpl(finding) => (&finding.site.path, finding.site.line),
             Self::ConstParam(finding) => (&finding.path, finding.line),
+            Self::PassThrough(finding) => (&finding.path, finding.line),
         }
     }
 
@@ -100,18 +102,23 @@ impl Finding {
         match self {
             Self::OneImpl(f) => (f.check, &f.site.path, &f.site.name, ""),
             Self::ConstParam(f) => (f.check, &f.path, &f.name, &f.param),
+            Self::PassThrough(f) => (f.check, &f.path, &f.name, ""),
         }
     }
 }
 
 /// Every enabled check over `index`, sorted by path, then line.
-fn run_checks(index: &Index, config: &Config) -> Vec<Finding> {
+fn run_checks(index: &Index, config: &Config, entry_points: &[String]) -> Vec<Finding> {
     let mut findings = Vec::new();
     if config.enabled(one_impl::ID) {
         findings.extend(one_impl::run(index, config).into_iter().map(Finding::OneImpl));
     }
     if config.enabled(const_param::ID) {
         findings.extend(const_param::run(index, config).into_iter().map(Finding::ConstParam));
+    }
+    if config.enabled(pass_through::ID) {
+        let found = pass_through::run(index, config, entry_points);
+        findings.extend(found.into_iter().map(Finding::PassThrough));
     }
     findings.sort_by(|a, b| a.path_line().cmp(&b.path_line()));
     findings
@@ -160,10 +167,11 @@ impl Cli {
         }
         let tree = discovery::discover(root, &config.exclude)?;
         let head = Parsed::new(&tree.files, &tree.projects, &config);
-        let Some(base) = base else { return Ok(run_checks(&head.into_index(), &config)) };
-        let before = run_checks(&head.with_sources(&base, &config).into_index(), &config);
+        let entry = &tree.entry_points;
+        let Some(base) = base else { return Ok(run_checks(&head.into_index(), &config, entry)) };
+        let before = run_checks(&head.with_sources(&base, &config).into_index(), &config, entry);
         let before: HashSet<_> = before.iter().map(Finding::key).collect();
-        let mut findings = run_checks(&head.into_index(), &config);
+        let mut findings = run_checks(&head.into_index(), &config, entry);
         findings.retain(|finding| !before.contains(&finding.key()));
         Ok(findings)
     }
@@ -181,7 +189,23 @@ fn write_text(out: &mut impl Write, finding: &Finding) -> Result<()> {
     match finding {
         Finding::OneImpl(finding) => write_one_impl(out, finding),
         Finding::ConstParam(finding) => write_const_param(out, finding),
+        Finding::PassThrough(finding) => write_pass_through(out, finding),
     }
+}
+
+fn write_pass_through(out: &mut impl Write, finding: &pass_through::Finding) -> Result<()> {
+    let f = finding;
+    writeln!(out, "{} {}:{} {}", f.check, f.path, f.line, f.name)?;
+    let form = match &f.target {
+        Some(target) => format!("{} → {} {}", f.form, target.at, target.name),
+        None => f.form.to_owned(),
+    };
+    writeln!(out, "  form: {form}; calls: {} prod, {} test", f.calls.prod, f.calls.test)?;
+    if f.keep_missing_reason {
+        writeln!(out, "  keep: missing reason")?;
+    }
+    writeln!(out, "  suggest: {}", f.suggest)?;
+    Ok(())
 }
 
 fn write_const_param(out: &mut impl Write, finding: &const_param::Finding) -> Result<()> {

@@ -1,0 +1,3 @@
+pass-through m.py:8 Child.save
+  form: forward → m.py:2 Base.save; calls: 1 prod, 0 test
+  suggest: delete Child.save, Base.save is inherited

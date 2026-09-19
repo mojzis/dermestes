@@ -64,6 +64,24 @@ pub struct Function {
     pub decorators: Vec<String>,
     pub is_abstract: bool,
     pub keep: Keep,
+    pub body: Body,
+}
+
+/// A function's body, excluding its docstring, as `pass-through` reads it.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct Body {
+    /// The call that is the whole statement, `return f(...)`, `await f(...)`
+    /// or `f(...)`: its position in [`crate::index::Index::calls`].
+    pub forward: Option<usize>,
+    /// Exactly one simple statement (an expression, `return`, assignment or
+    /// `raise`) spanning at most 2 lines.
+    pub simple: bool,
+    /// Annotated `-> bool`: a named predicate.
+    pub returns_bool: bool,
+    /// Defined inside a function, at any depth.
+    pub nested: bool,
+    /// A parameter annotated `Any`: the wrapper exists so callers type-check.
+    pub any_param: bool,
 }
 
 /// An argument or default, as far as "same value" can tell.
@@ -110,6 +128,7 @@ pub enum Callee {
 #[derive(Debug, Clone)]
 pub struct Call {
     pub file: usize,
+    pub line: usize,
     pub scope: ScopeId,
     pub callee: Callee,
     pub args: Vec<Arg>,
@@ -190,6 +209,7 @@ impl Walker<'_> {
             .map_or_else(Vec::new, |parameters| self.params(parameters, prefix, top));
 
         let id = self.functions.len();
+        let (body, forward) = self.body(node);
         self.functions.push(Function {
             file: 0,
             name: name.clone(),
@@ -201,7 +221,9 @@ impl Walker<'_> {
             decorators,
             is_abstract,
             keep: self.header_keep(node),
+            body,
         });
+        self.forward = forward.map(|call| (call, id));
         if top {
             self.top_names.push((name, TopName::Function(id)));
         } else if class.is_none() {
@@ -219,6 +241,60 @@ impl Walker<'_> {
         if let Some(body) = node.child_by_field_name("body") {
             self.in_scope(scope, |walker| walker.visit(body, &qualname, false));
         }
+    }
+
+    /// The body's shape, and the id of the node a forwarding call would be.
+    fn body(&self, node: Node<'_>) -> (Body, Option<usize>) {
+        let mut nested = false;
+        let mut scope = self.scope;
+        while scope != 0 && !nested {
+            nested = self.info.scopes[scope].class.is_none();
+            scope = self.info.scopes[scope].parent;
+        }
+        let mut body = Body {
+            returns_bool: node
+                .child_by_field_name("return_type")
+                .is_some_and(|annotation| self.text(annotation) == "bool"),
+            nested,
+            any_param: node.child_by_field_name("parameters").is_some_and(|parameters| {
+                let mut cursor = parameters.walk();
+                let any = parameters
+                    .named_children(&mut cursor)
+                    .filter_map(|param| param.child_by_field_name("type"))
+                    .any(|annotation| {
+                        let text = self.text(annotation);
+                        text == "Any" || text.ends_with(".Any")
+                    });
+                any
+            }),
+            ..Body::default()
+        };
+        let Some(block) = node.child_by_field_name("body") else { return (body, None) };
+        let mut cursor = block.walk();
+        let mut statements: Vec<Node<'_>> =
+            block.named_children(&mut cursor).filter(|n| n.kind() != "comment").collect();
+        let is_docstring = |first: &Node<'_>| {
+            first.kind() == "expression_statement"
+                && only(*first).is_some_and(|expr| expr.kind() == "string")
+        };
+        if statements.first().is_some_and(is_docstring) {
+            statements.remove(0);
+        }
+        let [statement] = statements[..] else { return (body, None) };
+        let lines = statement.end_position().row - statement.start_position().row + 1;
+        let expr = only(statement);
+        body.simple = lines <= 2
+            && matches!(
+                statement.kind(),
+                "expression_statement" | "return_statement" | "raise_statement"
+            )
+            && expr.is_none_or(|expr| expr.kind() != "ellipsis");
+        if !matches!(statement.kind(), "expression_statement" | "return_statement") {
+            return (body, None);
+        }
+        let expr = expr.map(|expr| if expr.kind() == "await" { only(expr) } else { Some(expr) });
+        let call = expr.flatten().filter(|expr| expr.kind() == "call");
+        (body, call.map(|call| call.id()))
     }
 
     /// Run `f` inside a new child scope, then return to the current one.
@@ -322,8 +398,12 @@ impl Walker<'_> {
             }
         }
         if let Some(callee) = callee {
+            if let Some((_, function)) = self.forward.filter(|(id, _)| *id == node.id()) {
+                self.functions[function].body.forward = Some(self.calls.len());
+            }
             self.calls.push(Call {
                 file: 0,
+                line: node.start_position().row + 1,
                 scope: self.scope,
                 callee,
                 args,
@@ -489,4 +569,9 @@ impl Walker<'_> {
             text.contains("__name__") && text.contains("__main__")
         })
     }
+}
+
+/// A statement's or expression's one named child.
+fn only(node: Node<'_>) -> Option<Node<'_>> {
+    (node.named_child_count() == 1).then(|| node.named_child(0)).flatten()
 }

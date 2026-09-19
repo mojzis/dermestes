@@ -8,7 +8,7 @@ use anyhow::{bail, Context, Result};
 use serde::Deserialize;
 
 /// Check ids this build knows. `disable` may only name these.
-const CHECK_IDS: &[&str] = &["one-impl", "const-param"];
+const CHECK_IDS: &[&str] = &["one-impl", "const-param", "pass-through"];
 
 /// The parsed config, with defaults filled in.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -19,7 +19,8 @@ pub struct Config {
     /// Globs for files counted as tests, never as targets.
     pub test_paths: Vec<String>,
     /// Decorators that do not exempt a function from the caller-counting
-    /// checks (`functools.cache`); `one-impl` does not read it.
+    /// checks (`functools.cache`); `one-impl` and single-use `pass-through`
+    /// do not read it.
     pub ignore_decorators: Vec<String>,
     /// Globs treated as public API: nothing defined there is flagged.
     pub public: Vec<String>,

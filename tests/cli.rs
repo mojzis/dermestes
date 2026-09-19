@@ -152,3 +152,24 @@ fn json_lists_explicit_argument_sites() {
     let json: serde_json::Value = serde_json::from_slice(&output.stdout).expect("valid json");
     assert_eq!(json[0]["sites"], serde_json::json!(["m.py:6"]), "the explicit argument");
 }
+
+#[test]
+fn json_carries_pass_through_fields() {
+    let tmp = TempDir::new().expect("temp dir");
+    std::fs::write(
+        tmp.path().join("m.py"),
+        "def f(a, b):\n    print(a)\n    return b\n\n\ndef g(a):\n    return f(a, 1)\n\n\ndef h(x):\n    y = g(x)\n    f(x, 2)\n    return y\n",
+    )
+    .expect("write");
+    let output = dermestes(tmp.path()).args(["--all", "--format", "json"]).output().expect("runs");
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).expect("valid json");
+    let finding = &json[0];
+    assert_eq!(finding["check"], "pass-through", "check id");
+    assert_eq!((&finding["path"], &finding["line"]), (&"m.py".into(), &6.into()), "def line");
+    assert_eq!(finding["name"], "g", "name");
+    assert_eq!(finding["form"], "forward", "form");
+    assert_eq!(finding["target"], serde_json::json!({"name": "f", "at": "m.py:1"}), "target");
+    assert_eq!(finding["calls"], serde_json::json!({"prod": 1, "test": 0}), "calls");
+    assert_eq!(finding["sites"], serde_json::json!(["m.py:11"]), "prod sites");
+    assert_eq!(finding["suggest"], "call f directly at m.py:11, delete g", "suggest");
+}

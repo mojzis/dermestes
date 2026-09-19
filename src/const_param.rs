@@ -5,7 +5,7 @@ use std::collections::HashMap;
 
 use serde::Serialize;
 
-use crate::callers::{Callers, Calls, Site};
+use crate::callers::{listed, Callers, Calls, Site};
 use crate::calls::{Arg, Call, FnId, FnKind, Function, ParamKind, Value, ValueKind};
 use crate::config::Config;
 use crate::index::{Index, Keep};
@@ -193,19 +193,14 @@ fn suggest(param: &str, value: &str, sites: &[String]) -> String {
     if sites.is_empty() {
         return format!("drop {param}, use {value} inline");
     }
-    let mut listed: Vec<String> = sites.iter().take(3).cloned().collect();
-    if sites.len() > 3 {
-        listed.push(format!("+{} more", sites.len() - 3));
-    }
-    let listed = listed.join(", ");
-    format!("drop {param} (and the argument at {listed}), use {value} inline")
+    format!("drop {param} (and the argument at {}), use {value} inline", listed(sites))
 }
 
 /// Bind `call`'s arguments to `function`'s parameters, the first `skip` of
 /// which the call fills implicitly. `None` when the call cannot be a call to
 /// `function`: a splat, too many arguments, an unknown keyword, a required
 /// parameter left out.
-fn bind<'c>(
+pub(crate) fn bind<'c>(
     function: &'c Function,
     call: &'c Call,
     skip: usize,

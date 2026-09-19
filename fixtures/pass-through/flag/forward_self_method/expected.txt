@@ -1,0 +1,3 @@
+pass-through store.py:9 Store.load
+  form: forward → store.py:5 Store._read; calls: 1 prod, 0 test
+  suggest: call _read directly at store.py:13, delete Store.load

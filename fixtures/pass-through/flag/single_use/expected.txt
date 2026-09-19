@@ -1,0 +1,3 @@
+pass-through m.py:1 _label
+  form: single-use; calls: 1 prod, 0 test
+  suggest: inline at m.py:8, delete _label

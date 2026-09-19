@@ -204,7 +204,8 @@ impl Index {
     /// to index-wide ids.
     fn add(&mut self, extracted: Extracted) {
         let file = self.files.len();
-        let (class_base, fn_base) = (self.classes.len(), self.functions.len());
+        let (class_base, fn_base, call_base) =
+            (self.classes.len(), self.functions.len(), self.calls.len());
         let mut info = extracted.info;
         for mut class in extracted.classes {
             class.file = file;
@@ -213,6 +214,7 @@ impl Index {
         for mut function in extracted.functions {
             function.file = file;
             function.class = function.class.map(|class| class + class_base);
+            function.body.forward = function.body.forward.map(|call| call + call_base);
             self.functions.push(function);
         }
         for mut call in extracted.calls {
@@ -353,6 +355,7 @@ fn extract(
         dynamic: Vec::new(),
         scope: 0,
         under_main: false,
+        forward: None,
     };
     walker.visit(root, "", true);
     Ok(Some(Extracted {
@@ -390,6 +393,9 @@ pub(crate) struct Walker<'s> {
     /// The scope being walked, in `info.scopes`.
     pub(crate) scope: usize,
     pub(crate) under_main: bool,
+    /// The node id of the call that makes up a function's whole body, and
+    /// that function: [`crate::calls::Body::forward`] is set when it is recorded.
+    pub(crate) forward: Option<(usize, FnId)>,
 }
 
 impl<'s> Walker<'s> {

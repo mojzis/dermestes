@@ -153,3 +153,18 @@ fn deleting_the_varying_call_reports_the_parameter() {
     assert_eq!(code, Some(1), "factor is now constant: {stdout}");
     assert!(stdout.starts_with("const-param m.py:1 scale(factor)\n"), "reported: {stdout}");
 }
+
+#[test]
+fn deleting_the_second_caller_reveals_a_single_use_helper() {
+    let tmp = TempDir::new().expect("temp dir");
+    git(tmp.path(), &["init", "-q"]);
+    let two = "def _label(n):\n    return n.title()\n\n\ndef a(n):\n    x = _label(n)\n    return x\n\n\ndef b(n):\n    y = _label(n)\n    return y\n";
+    std::fs::write(tmp.path().join("m.py"), two).expect("write");
+    git(tmp.path(), &["add", "."]);
+    git(tmp.path(), &["commit", "-q", "-m", "two callers"]);
+    let one = two.replace("    y = _label(n)\n", "    y = n\n");
+    std::fs::write(tmp.path().join("m.py"), one).expect("write");
+    let (code, stdout) = dermestes(tmp.path(), &[]);
+    assert_eq!(code, Some(1), "now single-use: {stdout}");
+    assert!(stdout.starts_with("pass-through m.py:1 _label\n"), "the helper: {stdout}");
+}
