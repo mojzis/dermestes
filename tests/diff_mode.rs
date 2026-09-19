@@ -79,3 +79,25 @@ fn base_moves_the_comparison_point() {
     assert_eq!(code, Some(1), "new since HEAD~1: {stdout}");
     assert!(stdout.contains("New") && !stdout.contains("Old"), "only the new one: {stdout}");
 }
+
+/// A linked worktree has a `.git` file, not a directory, and may live far
+/// from the main checkout. Run from one of its subdirectories, the root is the
+/// worktree's top and diff mode works as in a plain checkout.
+#[test]
+fn a_linked_worktree_elsewhere_is_its_own_root() {
+    let main = repo_with_old_finding();
+    let away = TempDir::new().expect("temp dir");
+    let worktree = away.path().join("wt");
+    let worktree_arg = worktree.to_str().expect("utf-8 temp path");
+    git(main.path(), &["worktree", "add", "-q", worktree_arg]);
+    std::fs::create_dir_all(worktree.join("pkg")).expect("mkdir");
+    std::fs::write(worktree.join("pkg/new.py"), NEW).expect("write");
+    git(&worktree, &["add", "pkg/new.py"]);
+
+    let (code, stdout) = dermestes(&worktree.join("pkg"), &[]);
+    assert_eq!(code, Some(1), "the staged finding is reported: {stdout}");
+    assert!(stdout.starts_with("one-impl pkg/new.py:4 New "), "root-relative path: {stdout}");
+    assert!(!stdout.contains("Old"), "pre-existing finding is not: {stdout}");
+    let (_, all) = dermestes(&worktree.join("pkg"), &["--all"]);
+    assert!(all.contains("old.py") && all.contains("pkg/new.py"), "whole worktree: {all}");
+}

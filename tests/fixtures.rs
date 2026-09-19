@@ -20,10 +20,27 @@ fn cases(kind: &str) -> Vec<PathBuf> {
     cases
 }
 
+fn copy_dir(from: &Path, to: &Path) {
+    std::fs::create_dir_all(to).expect("mkdir");
+    for entry in std::fs::read_dir(from).expect("readable dir") {
+        let path = entry.expect("readable entry").path();
+        let target = to.join(path.file_name().expect("has a name"));
+        if path.is_dir() {
+            copy_dir(&path, &target);
+        } else {
+            std::fs::copy(&path, &target).expect("copy");
+        }
+    }
+}
+
+/// Run on a copy outside this repository: in place, the project root would be
+/// the dermestes checkout, not the fixture.
 fn run_all(case: &Path) -> (Option<i32>, String, String) {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    copy_dir(case, tmp.path());
     let output = Command::new(env!("CARGO_BIN_EXE_dermestes"))
         .arg("--all")
-        .current_dir(case)
+        .current_dir(tmp.path())
         .output()
         .expect("binary runs");
     (

@@ -5,7 +5,7 @@
 
 use std::io::Write;
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand, ValueEnum};
@@ -93,8 +93,8 @@ impl Cli {
             write!(out, "{}", guide_output(topic))?;
             return Ok(Outcome::Clean);
         }
-        let root = std::env::current_dir().context("cannot read the current directory")?;
-        let findings = self.findings(&root)?;
+        let cwd = std::env::current_dir().context("cannot read the current directory")?;
+        let findings = self.findings(&project_root(&cwd))?;
         if findings.is_empty() {
             return Ok(Outcome::Clean);
         }
@@ -130,6 +130,14 @@ impl Cli {
         }
         Ok(findings)
     }
+}
+
+/// The nearest ancestor holding `.git` (a directory, or the file a linked
+/// worktree or submodule has), else the nearest holding `pyproject.toml`,
+/// else `cwd`. Counting users needs the whole project, not the cwd's subtree.
+fn project_root(cwd: &Path) -> PathBuf {
+    let nearest = |marker: &str| cwd.ancestors().find(|dir| dir.join(marker).exists());
+    nearest(".git").or_else(|| nearest("pyproject.toml")).unwrap_or(cwd).to_path_buf()
 }
 
 fn write_text(out: &mut impl Write, finding: &Finding) -> Result<()> {

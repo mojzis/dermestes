@@ -20,7 +20,9 @@ the code is laid out.
 
 ## A run
 
-`cli.rs` loads the config, reads the diff (unless `--all`), walks and indexes
+`cli.rs` finds the project root (the nearest ancestor with `.git`, file or
+directory, else the nearest with `pyproject.toml`, else the cwd), loads the
+config there, reads the diff (unless `--all`), walks and indexes
 the **whole** repository (counting users needs every file), runs the check,
 then keeps a finding only if the abstraction's or its implementation's `class`
 line falls inside a changed hunk. Output is sorted by path, then line.

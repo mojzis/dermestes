@@ -95,3 +95,23 @@ fn diff_mode_outside_a_git_repository_exits_2() {
     let tmp = TempDir::new().expect("temp dir");
     dermestes(tmp.path()).assert().code(2).stderr(contains("git diff"));
 }
+
+/// Run from a subdirectory, the whole project is still indexed: the second
+/// implementation outside the cwd keeps the ABC silent.
+#[test]
+fn a_subdirectory_run_indexes_the_whole_project() {
+    let tmp = TempDir::new().expect("temp dir");
+    let root = tmp.path();
+    std::fs::write(root.join("pyproject.toml"), "[project]\nname = \"app\"\n").expect("write");
+    for dir in ["app/core", "app/plugins"] {
+        std::fs::create_dir_all(root.join(dir)).expect("mkdir");
+    }
+    std::fs::write(root.join("app/core/base.py"), ONE_IMPL).expect("write");
+    std::fs::write(
+        root.join("app/plugins/other.py"),
+        "from app.core.base import Base\n\n\nclass Other(Base):\n    def run(self):\n        return 2\n",
+    )
+    .expect("write");
+    dermestes(&root.join("app/core")).arg("--all").assert().code(0).stdout("");
+    dermestes(root).arg("--all").assert().code(0).stdout("");
+}
