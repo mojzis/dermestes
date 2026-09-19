@@ -36,8 +36,7 @@ Each check has a stable id used in output, config and suppression markers.
 |---|---|---|
 | 1 | `one-impl` | ABC or Protocol with exactly one production implementation |
 | 2 | `const-param` | Parameter whose default is never overridden, or that receives the same literal, at every call site |
-| 3 | `pass-through` | Function whose body only forwards its arguments to another repo function |
-| 3 | `one-caller` | Private function with one production call site and a one-statement body |
+| 3 | `pass-through` | Function whose body only forwards its arguments to another repo function, or a private one-line helper with one production call site |
 
 Definitions:
 
@@ -60,17 +59,28 @@ Definitions:
   enough. `Class(...)` calls count as calls to `__init__`. An
   explicit literal equal to the default counts as not overriding it. A test call that
   passes a different value counts as variation, so the check stays silent.
-- **pass-through.** The body, excluding the docstring, is one `return f(...)`,
-  `await f(...)` or `f(...)` statement where:
-  - `f` resolves to a function defined in the repo;
-  - every argument is a parameter name, `self`/`cls` attribute or short literal;
-  - `f(...)` is the outermost node: no `bool(...)`, method chain or subscript around it.
+- **pass-through.** Two forms (amendment 2 folded `one-caller` into this check):
+  - **forward.** The body, excluding the docstring, is one `return f(...)`,
+    `await f(...)` or `f(...)` statement where:
+    - `f` resolves to a function defined in the repo;
+    - every argument is a parameter name, `self`/`cls` attribute or short literal;
+    - `f(...)` is the outermost node: no `bool(...)`, method chain or subscript around it.
 
-  Bodies that are SQL, templates or dict literals are not delegation.
-- **one-caller.** Only private (`_x`) functions whose body is a single simple statement,
-  with no test caller. This check is narrowed rather than removed: as first written it
-  was 4 % precise (20 of 452), and after the narrowing it is 42 %. Revisit after phase 3
-  data.
+    Any number of callers. Bodies that are SQL, templates or dict literals are not
+    delegation.
+  - **single-use** (was `one-caller`). All of these hold:
+    - the name is private (`_x`, not a dunder);
+    - it is defined at module or class level, not nested in a function;
+    - the body, excluding the docstring, is exactly one *simple* statement (an
+      expression, `return`, assignment or `raise`; not `with`/`for`/`if`/`try`)
+      spanning at most 2 lines;
+    - the return annotation is not `bool`: a named predicate (`_is_truthy`) earns its name;
+    - it has exactly one resolved production call site, no test caller and no decorator.
+
+    Suggestion: inline at the call site, delete. Reason (corpus, 596 labelled
+    one-caller rows): as first written, one-caller was 43 % precise; the ≤2-line
+    and non-`bool` gates bring it to 82 % at 9/20 recall. The misses are
+    multi-statement helpers nobody needs flagged.
 
 Candidates for later, only after the above prove useful on real repos: class with `__init__` plus one method, `**kwargs` never populated, wrap-and-reraise handlers, field-by-field mirrored models.
 
@@ -110,7 +120,7 @@ Always applied, in every check:
   Anything else is unknown, and unknown means silent. Reason: `dict.update` counted as
   calls to a Typer command called `update`; `jobs.get` got 154 calls, all of them
   `dict.get`.
-- **Test callers veto.** One-caller and pass-through stay silent when any test calls or
+- **Test callers veto.** Pass-through, in both forms, stays silent when any test calls or
   patches the symbol, because that makes it a seam. For const-param, a test passing a
   different value counts as variation.
 - **Overrides are exempt.** Methods that override a base-class method, with the base
@@ -136,6 +146,8 @@ Exit codes: `0` no findings, `1` findings, `2` usage or internal error.
 
 Config lives in `[tool.dermestes]` in `pyproject.toml`. Initial keys, nothing else until a real need appears: `exclude`, `test-paths`, `ignore-decorators`, `public` (globs treated as public API and exempt), `disable` (check ids).
 
+`exclude` defaults to `examples/**`, `docs/**` and `**/test/resources/**`: the explicit parameter is what an example teaches (11 % of findings on feast, 21 % on dlt). An explicit `exclude` replaces the defaults.
+
 Text output, one block per finding, sorted by path then line:
 
 ```
@@ -149,6 +161,7 @@ one-impl src/pay/gateway.py:12 PaymentGateway (ABC, 3 abstract methods)
 - Rust, tree-sitter-python, shipped as a Python wheel via maturin, runnable as `uvx dermestes@latest`.
 - Tests are fixture-driven. Each check has `fixtures/<id>/flag/` and `fixtures/<id>/no_flag/` Python cases with expected output. Every false positive found in the wild becomes a `no_flag` fixture before the fix is written.
 - An unparseable file is skipped with a one-line note on stderr. It never fails the run.
+- A generated file, one whose first 5 lines contain `Do not edit` or `DO NOT EDIT`, is skipped: it is fixed at its generator (litestar's `_sync.py`, generated from `_async.py`).
 - Every dependency needs a one-line justification in the PR that adds it. No async runtime. Parallel parsing via rayon is fine.
 - No feature, flag or config key is added speculatively. It is added when a real repo needed it, and the commit says which.
 
@@ -159,3 +172,18 @@ Auto-fix. Languages other than Python. Editor or LSP integration. Complexity sco
 ## Amendments
 
 This document changes only in a commit that states the reason. If practice and constitution disagree, fix one of them in that commit.
+
+### Amendment 2 (2026-09-19)
+
+- **Retroactive record** of guard changes made during phase 2 and accepted by the
+  user on 2026-09-19. They are already in the text above:
+  - `@staticmethod`, `@classmethod` and `@abstractmethod` do not exempt;
+  - `ignore-decorators` only narrows the decorator exemption;
+  - methods a subclass overrides, and every method of a class with a base outside
+    the repo, are exempt;
+  - a constant a test patches by string is not "the same value";
+  - `keep` works on any line of the definition's header.
+- **`one-caller` is folded into `pass-through`** as its single-use form, gated to
+  ≤2-line, non-`bool` bodies. The check table has three checks.
+- **Default excludes** (`examples/`, `docs/`, `**/test/resources/**`) and the
+  **generated-file rule**, from the phase-2 evaluation on feast, dlt and litestar.
