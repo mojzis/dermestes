@@ -1,4 +1,3 @@
 one-impl src/app/base.py:4 Loader (ABC, 1 abstract methods)
   impl: src/app/impl/files.py:4 FileLoader
-  tests: 0 impls
   suggest: inline into FileLoader, delete Loader

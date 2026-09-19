@@ -1,4 +1,3 @@
 one-impl greet.py:4 Greeter (Protocol, 2 methods)
   impl: english.py:1 English
-  tests: 0 impls
   suggest: use English directly, delete Greeter

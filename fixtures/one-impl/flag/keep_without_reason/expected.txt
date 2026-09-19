@@ -1,5 +1,4 @@
 one-impl store.py:4 Store (ABC, 1 abstract methods)
   impl: store.py:9 DictStore
-  tests: 0 impls
   keep: missing reason
   suggest: inline into DictStore, delete Store

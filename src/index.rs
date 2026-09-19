@@ -1,7 +1,7 @@
 //! Parse every file and extract what the checks need.
 //!
 //! Per file: module names, the module-level import table, every class,
-//! `__all__`, string literals, and `X.register` mentions. The tree-sitter
+//! `__all__`, names in dynamic-lookup strings, and `X.register` mentions. The tree-sitter
 //! setup is biston's `parse.rs`.
 //!
 //! Nothing here resolves a name across files; that is [`crate::resolve`].
@@ -78,7 +78,8 @@ pub struct Index {
     pub classes: Vec<Class>,
     /// Names listed in any `__all__`.
     pub all_names: HashSet<String>,
-    /// Identifier-shaped string literals anywhere (`getattr` arguments included).
+    /// Names in string arguments to `getattr`/`setattr`/`hasattr`/`patch`/`patch.object`
+    /// (last segment of a dotted path), and string dict keys.
     pub strings: HashSet<String>,
     /// `X` for every `X.register` seen: ABC virtual subclass registration.
     pub registered: HashSet<String>,
@@ -242,7 +243,12 @@ impl<'s> Walker<'s> {
                 return;
             }
             "assignment" | "augmented_assignment" if top => self.dunder_all(node),
-            "string" => return self.string(node),
+            "string" => return,
+            "call" => self.lookup_call(node),
+            "pair" => {
+                let key = node.child_by_field_name("key").and_then(|key| self.string(key));
+                self.strings.extend(key.filter(|key| is_identifier(key)));
+            }
             "attribute" => {
                 let attr = node.child_by_field_name("attribute").map(|n| self.text(n));
                 let object = node.child_by_field_name("object").and_then(|n| dotted(self, n));
@@ -413,26 +419,60 @@ impl<'s> Walker<'s> {
             return;
         }
         if let Some(value) = node.child_by_field_name("right") {
-            let before = self.strings.len();
-            self.visit(value, "", false);
-            let listed = self.strings[before..].to_vec();
-            self.all_names.extend(listed);
+            self.all_strings(value);
         }
     }
 
-    fn string(&mut self, node: Node<'_>) {
+    /// Every identifier-shaped string under `node`, into `all_names`.
+    fn all_strings(&mut self, node: Node<'_>) {
+        if let Some(name) = self.string(node) {
+            self.all_names.extend(Some(name).filter(|name| is_identifier(name)));
+            return;
+        }
+        let mut cursor = node.walk();
+        for child in node.named_children(&mut cursor) {
+            self.all_strings(child);
+        }
+    }
+
+    /// `getattr(m, "C")`, `patch("pkg.mod.C")`, `patch.object(m, "C")`,
+    /// `monkeypatch.setattr("pkg.mod.C", ...)`: record `C`.
+    fn lookup_call(&mut self, node: Node<'_>) {
+        let function = node.child_by_field_name("function").and_then(|n| dotted(self, n));
+        let is_lookup = function.is_some_and(|parts| match &parts[..] {
+            [.., patch, object] if patch == "patch" && object == "object" => true,
+            [.., last] => ["getattr", "setattr", "hasattr", "patch"].contains(&last.as_str()),
+            [] => false,
+        });
+        let Some(arguments) = node.child_by_field_name("arguments").filter(|_| is_lookup) else {
+            return;
+        };
+        let mut cursor = arguments.walk();
+        let names: Vec<String> = arguments
+            .named_children(&mut cursor)
+            .filter_map(|argument| self.string(argument))
+            .filter_map(|path| path.rsplit('.').next().map(str::to_owned))
+            .filter(|name| is_identifier(name))
+            .collect();
+        self.strings.extend(names);
+    }
+
+    /// The content of a plain string literal; `None` for anything else,
+    /// f-strings with interpolation included.
+    fn string(&self, node: Node<'_>) -> Option<String> {
+        if node.kind() != "string" {
+            return None;
+        }
         let mut cursor = node.walk();
         let mut content = String::new();
         for child in node.named_children(&mut cursor) {
             match child.kind() {
                 "string_content" => content.push_str(self.text(child)),
-                "interpolation" => return,
+                "interpolation" => return None,
                 _ => {}
             }
         }
-        if is_identifier(&content) {
-            self.strings.push(content);
-        }
+        Some(content)
     }
 }
 
@@ -520,10 +560,14 @@ mod tests {
 
     #[test]
     fn collects_all_strings_and_register() {
-        let src = "__all__ = ['A', \"B\"]\nx = getattr(m, 'C')\nf'{y}z'\nBase.register(int)\n";
+        let src = "__all__ = ['A'] + [\"B\"]\nx = getattr(m, 'C')\nf'{y}z'\nBase.register(int)\n\
+                   patch('p.q.D')\nmock.patch.object(m, 'E')\nr = {'F': 1}\n\
+                   def g(x: 'G') -> 'H':\n    \"\"\"I\"\"\"\nJ = 'J'\n";
         let extracted = extract_one("m.py", src);
         assert_eq!(extracted.all_names, vec!["A", "B"], "__all__");
-        assert!(extracted.strings.contains(&"C".to_owned()), "getattr argument");
+        let mut strings = extracted.strings.clone();
+        strings.sort();
+        assert_eq!(strings, vec!["C", "D", "E", "F"], "lookups and dict keys only");
         assert_eq!(extracted.registered, vec!["Base"], "register");
     }
 

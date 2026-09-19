@@ -31,7 +31,6 @@ pub struct Finding {
     pub members: usize,
     #[serde(rename = "impl")]
     pub implementation: Site,
-    pub test_impls: usize,
     pub keep_missing_reason: bool,
     pub suggest: String,
 }
@@ -238,7 +237,6 @@ impl<'a> Check<'a> {
                 class.qualname
             ),
             implementation,
-            test_impls: tests.len(),
             keep_missing_reason: class.keep == Keep::MissingReason,
         })
     }

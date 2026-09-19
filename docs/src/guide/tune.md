@@ -23,7 +23,8 @@ disable = ["one-impl"]
 
 **Always exempt**, whatever the config: test code, names in `__all__`, names
 re-exported from an `__init__.py`, dunder methods, ABCs passed to
-`X.register(...)`, and any name that appears as a string literal or `getattr`
-argument in the repository.
+`X.register(...)`, and any name passed as a string to `getattr`, `setattr`,
+`hasattr`, `patch` or `patch.object` (a dotted path counts by its last part), or
+used as a string dict key. Docstrings and string type annotations do not count.
 
 next: run `dermestes --all`

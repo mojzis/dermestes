@@ -5,7 +5,6 @@ Each finding is a deletion candidate: an abstraction with a single user.
 ```
 one-impl src/pay/gateway.py:12 PaymentGateway (ABC, 3 abstract methods)
   impl: src/pay/stripe.py:8 StripeGateway
-  tests: 0 impls
   suggest: inline into StripeGateway, delete PaymentGateway
 ```
 
@@ -29,6 +28,8 @@ be structural (it has every method, it never subclasses the Protocol).
 - A base or subclass it cannot resolve (third-party, dynamic `type()`,
   metaclass other than `ABCMeta`, a `sys.path` layout other than the repo root
   or `src/`) silences the whole hierarchy.
+- A plain base class (no `ABC`, no abstract methods) with one subclass: it
+  would also match exception hierarchies and mixins.
 - Files with syntax errors are skipped, so their subclasses go uncounted.
 - Diff mode sees staged and unstaged changes, not untracked files: `git add`
   (or `git add -N`) a new file first.

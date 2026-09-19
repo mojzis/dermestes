@@ -146,7 +146,6 @@ fn write_text(out: &mut impl Write, finding: &Finding) -> Result<()> {
         "  impl: {}:{} {}",
         implementation.path, implementation.line, implementation.name
     )?;
-    writeln!(out, "  tests: {} impls", finding.test_impls)?;
     if finding.keep_missing_reason {
         writeln!(out, "  keep: missing reason")?;
     }

@@ -112,7 +112,7 @@ Always applied, in every check:
 - **Overrides are exempt.** Methods that override a base-class method, with the base
   resolved or not, are exempt, except overrides whose body only calls `super()` with the
   same arguments. Those are pass-through candidates.
-- Test code is never a target. Test usages are counted separately from production usages and shown as such.
+- Test code is never a target. Test usages are counted separately from production usages. A test usage vetoes a finding where the check says so, and is not printed otherwise.
 - If a base class or callee cannot be resolved to a definition inside the repo, the hierarchy or call is unknown, and nothing depending on it is flagged.
 - Inline suppression: `# dermestes: keep <reason>` on the definition line. The reason is mandatory.
 
@@ -135,7 +135,6 @@ Text output, one block per finding, sorted by path then line:
 ```
 one-impl src/pay/gateway.py:12 PaymentGateway (ABC, 3 abstract methods)
   impl: src/pay/stripe.py:8 StripeGateway
-  tests: 0 impls
   suggest: inline into StripeGateway, delete PaymentGateway
 ```
 
