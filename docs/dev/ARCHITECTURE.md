@@ -17,6 +17,7 @@ the code is laid out.
 | `calls.rs` | The call-site half of the same walk: functions and parameters, calls and their arguments, function and class scopes, names used as values. |
 | `resolve.rs` | Resolves a dotted expression to an indexed class, function or module constant, `ABC`/`ABCMeta`/`Protocol`/`object`, external, or unknown. |
 | `one_impl.rs` | The `one-impl` check and the `Finding` it produces. |
+| `callers.rs` | Resolves every call to a repository function (or keeps it by name as a possible call) and holds the precision guards the caller-counting checks share. |
 | `const_param.rs` | The `const-param` check: resolves every call, binds its arguments, compares each parameter's values across sites. |
 | `git.rs` | The only subprocess: `git diff --unified=0`, plus the working tree, rebuilds each changed file's base side. |
 
@@ -45,7 +46,7 @@ looked up in a module outside the repository (`logging.Formatter`), which
 cannot be a repository class.
 Poisoned classes are never reported.
 
-Calls (`const_param.rs`) resolve only through what the index can see: a bare
+Calls (`callers.rs`) resolve only through what the index can see: a bare
 name through enclosing function scopes then the module, `mod.f` through
 imports, `self.m`/`cls.m`/`super().m` through the class's resolved bases.
 `Class(...)` is `__init__`. Every other call is kept by method name only, as
