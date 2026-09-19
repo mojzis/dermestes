@@ -10,7 +10,8 @@ one-impl src/pay/gateway.py:12 PaymentGateway (ABC, 3 abstract methods)
 ```
 
 The first line is the check id, the definition and what it is. The indented
-lines are the evidence and the concrete simplification.
+lines are the evidence and the concrete simplification. A Protocol's impl may
+be structural (it has every method, it never subclasses the Protocol).
 
 **For each finding:**
 
@@ -18,7 +19,19 @@ lines are the evidence and the concrete simplification.
    counts cannot see (a plugin point, a public API)?
 2. If not, apply the `suggest:` line, then run the test suite.
 3. If it is deliberate, suppress it on the definition line with a reason:
-   `# dermestes: keep <reason>`. A marker without a reason is ignored.
+   `# dermestes: keep <reason>`. Without a reason it still reports, with a
+   `keep: missing reason` line.
+
+**Known misses** (it stays silent, by design):
+
+- Any test implementation hides the finding, even when the one production
+  implementation is the only real one: a fake may be a deliberate seam.
+- A base or subclass it cannot resolve (third-party, dynamic `type()`,
+  metaclass other than `ABCMeta`, a `sys.path` layout other than the repo root
+  or `src/`) silences the whole hierarchy.
+- Files with syntax errors are skipped, so their subclasses go uncounted.
+- Diff mode sees staged and unstaged changes, not untracked files: `git add`
+  (or `git add -N`) a new file first.
 
 `dermestes guide tune` lists the config keys that exempt whole paths.
 

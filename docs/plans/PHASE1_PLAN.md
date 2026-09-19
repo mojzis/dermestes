@@ -1,0 +1,13 @@
+# Phase 1 plan (`one-impl`) — approved, built
+
+This is the reply to `BUILD_PROMPT_PHASE1.md`. Approved and built on 2026-09-18.
+
+- **Files (6 new, ~1,150 lines):** `config.rs` (~100) `[tool.dermestes]` with the five keys, unknown key → exit 2 · `discovery.rs` (~50) biston walker plus `exclude` · `index.rs` (~380) tree-sitter parse from biston's `parse.rs`, and per file: module path, import table, classes, `__all__`, string literals, `keep` markers · `resolve.rs` (~200) resolves a base expression to a `ClassId` or `Unknown` · `one_impl.rs` (~280) the check and `Finding` · `git.rs` (~80) the only `git diff --unified=0` call, parsed into path → line ranges. Text/JSON rendering goes in `cli.rs` (~60).
+- **Data:** `Index { files: Vec<FileInfo>, classes: Vec<Class> }`. `Class { qualname, file, line, bases: Vec<Base>, methods: BTreeSet<String>, is_abstract, is_protocol, is_test, keep: Option<Result<reason, NoReason>> }`. `Base` is `Class(ClassId) | Abc | Protocol | Object | Unknown`. `FileInfo { module, is_init, imports: BTreeMap<local, Target>, all: Option<Vec<String>>, class_names }`. Global `strings: HashSet<String>`.
+- **Layout:** module roots are the repo root and `src/` if it exists. `a.b` resolves to `a/b.py` or `a/b/__init__.py`. Relative imports resolve from the file's package. Re-exports through `__init__` are followed with a visited-set guard. Anything else → `Unknown`.
+- **Check:** subclasses come from resolved edges. A class with any `Unknown` base, or any other non-trivial metaclass, poisons itself and its ancestors. Protocols match structurally on method-name superset, plus nominal subclasses. Guards: `__all__`, `__init__` re-export, `public` globs, name in a string literal, `Base.register(` seen → skip, test fakes → skip. A keep marker with a reason → skip. A marker without one → still flagged, with a `keep: missing reason` line.
+- **Parallelism:** rayon over parsing only. Sorting is deterministic by (path, line).
+- **Deps:** `tree-sitter` + `tree-sitter-python` (Python AST) · `ignore` (gitignore-aware walk, as biston does) · `glob-match` (config globs) · `rayon` (parallel parse; needed for the 5 s target) · `serde` + `serde_json` (config deserialisation and `--format json`).
+- **Tests:** `tests/fixtures.rs` walks `fixtures/one-impl/{flag,no_flag}/*/`, runs `--all` in each case and compares stdout with `expected.txt`; for `no_flag` that must be empty. `tests/diff_mode.rs` covers diff mode using a tempdir git repo.
+- **Docs:** guide pages (triage covers reading/acting/suppressing/known misses), the ARCHITECTURE module table, and CLAUDE invariants if anything changes.
+- **Known misses to document:** a test seam hides a real one-impl; dynamic subclassing; `sys.path` layouts; metaclass-built classes.

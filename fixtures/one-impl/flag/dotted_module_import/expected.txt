@@ -1,0 +1,4 @@
+one-impl core/sinks.py:4 Sink (ABC, 1 abstract methods)
+  impl: app.py:4 StdoutSink
+  tests: 0 impls
+  suggest: inline into StdoutSink, delete Sink

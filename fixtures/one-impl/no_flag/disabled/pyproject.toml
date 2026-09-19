@@ -1,0 +1,2 @@
+[tool.dermestes]
+disable = ["one-impl"]

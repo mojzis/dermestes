@@ -1,0 +1,4 @@
+one-impl pay/gateway.py:4 PaymentGateway (ABC, 3 abstract methods)
+  impl: pay/stripe.py:4 StripeGateway
+  tests: 0 impls
+  suggest: inline into StripeGateway, delete PaymentGateway

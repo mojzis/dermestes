@@ -1,0 +1,4 @@
+one-impl shapes.py:4 Shape (ABC, 2 abstract methods)
+  impl: shapes.py:17 Square
+  tests: 0 impls
+  suggest: inline into Square, delete Shape

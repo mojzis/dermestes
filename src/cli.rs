@@ -5,10 +5,15 @@
 
 use std::io::Write;
 
-use anyhow::{bail, Result};
+use std::path::Path;
+
+use anyhow::{Context, Result};
 use clap::{Parser, Subcommand, ValueEnum};
 
-use crate::guide;
+use crate::config::Config;
+use crate::index::Index;
+use crate::one_impl::Finding;
+use crate::{discovery, git, guide, one_impl};
 
 const ABOUT: &str = "Finds Python abstractions that have not earned their keep.";
 
@@ -88,8 +93,65 @@ impl Cli {
             write!(out, "{}", guide_output(topic))?;
             return Ok(Outcome::Clean);
         }
-        bail!("no checks are implemented yet (phase 1 adds `one-impl`)")
+        let root = std::env::current_dir().context("cannot read the current directory")?;
+        let findings = self.findings(&root)?;
+        if findings.is_empty() {
+            return Ok(Outcome::Clean);
+        }
+        match self.format {
+            Format::Text => findings.iter().try_for_each(|finding| write_text(out, finding))?,
+            Format::Json => writeln!(out, "{}", serde_json::to_string_pretty(&findings)?)?,
+        }
+        Ok(Outcome::Findings)
     }
+
+    /// Index the whole repository, run the checks, then keep only what the
+    /// diff touched unless `--all`.
+    fn findings(&self, root: &Path) -> Result<Vec<Finding>> {
+        let config = Config::load(root)?;
+        // Read the diff first: a bad `--base` should fail before any parsing.
+        let changes = if self.all {
+            None
+        } else {
+            Some(git::changed_lines(root, self.base.as_deref().unwrap_or("HEAD"))?)
+        };
+        if !config.enabled(one_impl::ID) {
+            return Ok(Vec::new());
+        }
+        let files = discovery::discover(root, &config.exclude)?;
+        let index = Index::build(&files, &config);
+        let mut findings = one_impl::run(&index, &config);
+        if let Some(changes) = changes {
+            findings.retain(|finding| {
+                [&finding.site, &finding.implementation]
+                    .iter()
+                    .any(|site| git::touches(&changes, &site.path, site.line))
+            });
+        }
+        Ok(findings)
+    }
+}
+
+fn write_text(out: &mut impl Write, finding: &Finding) -> Result<()> {
+    let what = if finding.kind == "ABC" { "abstract methods" } else { "methods" };
+    let site = &finding.site;
+    let implementation = &finding.implementation;
+    writeln!(
+        out,
+        "{} {}:{} {} ({}, {} {what})",
+        finding.check, site.path, site.line, site.name, finding.kind, finding.members
+    )?;
+    writeln!(
+        out,
+        "  impl: {}:{} {}",
+        implementation.path, implementation.line, implementation.name
+    )?;
+    writeln!(out, "  tests: {} impls", finding.test_impls)?;
+    if finding.keep_missing_reason {
+        writeln!(out, "  keep: missing reason")?;
+    }
+    writeln!(out, "  suggest: {}", finding.suggest)?;
+    Ok(())
 }
 
 /// Resolve the guide topic and render it. Detection reads the current

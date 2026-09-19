@@ -3,8 +3,8 @@
 Finds abstractions in Python code that have not earned their keep, and reports
 them as deletion candidates an agent can act on.
 
-> **Status:** scaffolding. No checks are implemented yet; phase 1 adds
-> `one-impl`. See [`docs/plans/CONSTITUTION.md`](docs/plans/CONSTITUTION.md).
+> **Status:** phase 1. `one-impl` works; the other checks are not built yet.
+> See [`docs/plans/CONSTITUTION.md`](docs/plans/CONSTITUTION.md).
 
 ## Checks
 

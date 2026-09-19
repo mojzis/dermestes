@@ -13,15 +13,17 @@ disable = ["one-impl"]
 
 - `exclude`: files never indexed.
 - `test-paths`: files whose code is counted as tests, never as targets.
-- `ignore-decorators`: narrows or extends the decorated-symbol exemption.
+- `ignore-decorators`: narrows or extends the decorated-symbol exemption
+  (read by the caller-counting checks; `one-impl` does not use it).
 - `public`: globs treated as public API and exempt.
 - `disable`: check ids to skip.
 
 **Suppression** is per definition, on its line, with a mandatory reason:
 `# dermestes: keep <reason>`.
 
-**Always exempt**, whatever the config: names in `__all__`, names re-exported
-from an `__init__.py`, dunder methods, and any name that appears as a string
-literal or `getattr` argument in the repository.
+**Always exempt**, whatever the config: test code, names in `__all__`, names
+re-exported from an `__init__.py`, dunder methods, ABCs passed to
+`X.register(...)`, and any name that appears as a string literal or `getattr`
+argument in the repository.
 
 next: run `dermestes --all`
