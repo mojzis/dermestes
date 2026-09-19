@@ -1,0 +1,3 @@
+const-param m.py:1 render(width)
+  calls: 2 prod, 0 test; default 80 never overridden, passed explicitly at 1 site
+  suggest: drop width (and the argument at m.py:7), use 80 inline

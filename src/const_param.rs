@@ -33,6 +33,8 @@ pub struct Finding {
     /// `never-overridden` (the default always applies) or `same-literal`.
     pub form: &'static str,
     pub calls: Calls,
+    /// `path:line` of each argument that passes the value explicitly.
+    pub sites: Vec<String>,
     pub keep_missing_reason: bool,
     pub suggest: String,
 }
@@ -396,6 +398,17 @@ impl<'a> Check<'a> {
                 given.iter().flatten().next().map(|value| value.text.clone())
             };
             let Some(value) = value else { continue };
+            let mut explicit: Vec<(&str, usize)> = sites
+                .iter()
+                .zip(&given)
+                .filter_map(|(site, value)| {
+                    let file = &self.index.files[self.index.calls[site.call].file];
+                    value.map(|value| (file.relative.as_str(), value.line))
+                })
+                .collect();
+            explicit.sort_unstable();
+            let explicit: Vec<String> =
+                explicit.iter().map(|(path, line)| format!("{path}:{line}")).collect();
             let file = &self.index.files[function.file];
             findings.push(Finding {
                 check: ID,
@@ -403,7 +416,8 @@ impl<'a> Check<'a> {
                 line: function.line,
                 name: function.qualname.clone(),
                 param: param.name.clone(),
-                suggest: format!("drop {}, use {value} inline", param.name),
+                suggest: suggest(&param.name, &value, &explicit),
+                sites: explicit,
                 value,
                 form: if never_overridden { "never-overridden" } else { "same-literal" },
                 calls,
@@ -454,6 +468,19 @@ impl<'a> Check<'a> {
             ValueKind::Other => None,
         }
     }
+}
+
+/// `drop p, use v inline`, naming up to three arguments callers must lose.
+fn suggest(param: &str, value: &str, sites: &[String]) -> String {
+    if sites.is_empty() {
+        return format!("drop {param}, use {value} inline");
+    }
+    let mut listed: Vec<String> = sites.iter().take(3).cloned().collect();
+    if sites.len() > 3 {
+        listed.push(format!("+{} more", sites.len() - 3));
+    }
+    let listed = listed.join(", ");
+    format!("drop {param} (and the argument at {listed}), use {value} inline")
 }
 
 /// A decorator `ignore-decorators` lists, by its dotted name or a dotted suffix

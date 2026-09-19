@@ -137,4 +137,18 @@ fn json_carries_const_param_fields() {
     assert_eq!(finding["form"], "never-overridden", "form");
     assert_eq!(finding["calls"], serde_json::json!({"prod": 1, "test": 0}), "calls");
     assert_eq!(finding["suggest"], "drop cost_usd, use None inline", "suggest");
+    assert_eq!(finding["sites"], serde_json::json!([]), "no caller passes it");
+}
+
+#[test]
+fn json_lists_explicit_argument_sites() {
+    let tmp = TempDir::new().expect("temp dir");
+    std::fs::write(
+        tmp.path().join("m.py"),
+        "def f(x, sep=\"-\"):\n    return x\n\n\ndef g():\n    f(1, sep=\"-\")\n    f(2)\n",
+    )
+    .expect("write");
+    let output = dermestes(tmp.path()).args(["--all", "--format", "json"]).output().expect("runs");
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).expect("valid json");
+    assert_eq!(json[0]["sites"], serde_json::json!(["m.py:6"]), "the explicit argument");
 }

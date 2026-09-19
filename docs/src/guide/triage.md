@@ -15,7 +15,9 @@ The first line is the check id, the definition and what it is. The indented
 lines are the evidence and the concrete simplification. A Protocol's impl may
 be structural (it has every method, it never subclasses the Protocol).
 `const-param` says `always <value>` when every call passes the same literal or
-module constant instead of leaving the default.
+module constant instead of leaving the default, and `passed explicitly at N
+sites` when callers write the value out; the suggestion names those arguments
+(three, then `+N more`), which go too.
 
 **For each finding:**
 

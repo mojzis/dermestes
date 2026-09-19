@@ -187,10 +187,16 @@ fn write_text(out: &mut impl Write, finding: &Finding) -> Result<()> {
 fn write_const_param(out: &mut impl Write, finding: &const_param::Finding) -> Result<()> {
     let f = finding;
     writeln!(out, "{} {}:{} {}({})", f.check, f.path, f.line, f.name, f.param)?;
-    let evidence = if f.form == "never-overridden" {
-        format!("default {} never overridden", f.value)
-    } else {
-        format!("always {}", f.value)
+    let (explicit, sites) = (f.sites.len(), if f.sites.len() == 1 { "site" } else { "sites" });
+    let evidence = match (f.form, explicit) {
+        ("never-overridden", 0) => format!("default {} never overridden", f.value),
+        ("never-overridden", n) if n == f.calls.prod + f.calls.test => {
+            format!("always {} (= default), passed explicitly at {n} {sites}", f.value)
+        }
+        ("never-overridden", n) => {
+            format!("default {} never overridden, passed explicitly at {n} {sites}", f.value)
+        }
+        _ => format!("always {}", f.value),
     };
     writeln!(out, "  calls: {} prod, {} test; {evidence}", f.calls.prod, f.calls.test)?;
     if f.keep_missing_reason {

@@ -71,6 +71,7 @@ pub struct Function {
 pub struct Value {
     /// Source text, for output.
     pub text: String,
+    pub line: usize,
     pub kind: ValueKind,
 }
 
@@ -449,7 +450,7 @@ impl Walker<'_> {
                 dotted(self, node).filter(|_| node.kind() != "subscript").map(ValueKind::Name)
             })
             .unwrap_or(ValueKind::Other);
-        Value { text, kind }
+        Value { text, line: node.start_position().row + 1, kind }
     }
 
     fn literal_key(&self, node: Node<'_>) -> Option<String> {
