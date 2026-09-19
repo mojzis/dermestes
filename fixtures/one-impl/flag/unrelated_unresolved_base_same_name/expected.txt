@@ -1,0 +1,3 @@
+one-impl fmt/code.py:4 Formatter (ABC, 1 abstract methods)
+  impl: fmt/code.py:9 BlackFormatter
+  suggest: inline into BlackFormatter, delete Formatter

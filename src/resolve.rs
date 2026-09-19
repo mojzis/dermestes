@@ -4,7 +4,7 @@
 //! marker (`ABC`, `Protocol`, ...), or `Unknown`. `Unknown` is the precision fence: nothing that depends on an
 //! unknown edge is ever flagged.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use crate::index::{Binding, ClassId, Index};
 
@@ -24,6 +24,9 @@ pub enum Target {
     Protocol,
     /// `object` or `typing.Generic`: adds nothing to a hierarchy.
     Object,
+    /// A name looked up in a module that is not in the repository: unknown,
+    /// but it cannot be any repository definition.
+    External,
     Unknown,
 }
 
@@ -31,6 +34,8 @@ pub struct Resolver<'a> {
     index: &'a Index,
     /// Module name to file; `None` when two files claim the same name.
     modules: HashMap<&'a str, Option<usize>>,
+    /// Every proper dotted prefix of a module name: the namespace packages.
+    namespaces: HashSet<&'a str>,
 }
 
 impl<'a> Resolver<'a> {
@@ -44,7 +49,11 @@ impl<'a> Resolver<'a> {
                     .or_insert(Some(file));
             }
         }
-        Self { index, modules }
+        let namespaces = modules
+            .keys()
+            .flat_map(|name| name.match_indices('.').map(|(end, _)| &name[..end]))
+            .collect();
+        Self { index, modules, namespaces }
     }
 
     /// Resolve `parts` (e.g. `["core", "sinks", "Sink"]`) in `file`'s module scope.
@@ -112,6 +121,7 @@ impl<'a> Resolver<'a> {
             Some(None) => Target::Unknown,
             // Not in the repository: a namespace package or a third-party module.
             None if self.modules.contains_key(submodule.as_str()) => Target::Module(submodule),
+            None if self.namespaces.contains(module) => Target::Unknown,
             None => well_known(module, name),
         }
     }
@@ -124,7 +134,7 @@ fn well_known(module: &str, name: &str) -> Target {
         ("abc", "ABCMeta") => Target::AbcMeta,
         ("typing" | "typing_extensions", "Protocol") => Target::Protocol,
         ("typing" | "typing_extensions", "Generic") | ("builtins", "object") => Target::Object,
-        _ => Target::Unknown,
+        _ => Target::External,
     }
 }
 
@@ -177,7 +187,7 @@ mod tests {
         assert_eq!(resolver.dotted(0, &parts("abc.ABC")), Target::Abc, "abc.ABC");
         assert_eq!(resolver.dotted(0, &parts("Protocol")), Target::Protocol, "Protocol");
         assert_eq!(resolver.dotted(0, &parts("Generic")), Target::Object, "Generic");
-        assert_eq!(resolver.dotted(0, &parts("BaseModel")), Target::Unknown, "third party");
+        assert_eq!(resolver.dotted(0, &parts("BaseModel")), Target::External, "third party");
     }
 
     #[test]

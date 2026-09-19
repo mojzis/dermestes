@@ -35,5 +35,7 @@ Module roots are the repository root and every directory holding a
 read at module scope only; `import a.b`, `from a import b [as c]`, relative
 imports and re-exports through `__init__.py` are followed. Anything else is
 unknown. A class with an unknown base or a non-`ABCMeta` metaclass poisons
-every ancestor; an unresolved base named `X` poisons every class named `X`.
+every ancestor; an unresolved base named `X` poisons every class named `X`, unless it is
+looked up in a module outside the repository (`logging.Formatter`), which
+cannot be a repository class.
 Poisoned classes are never reported.

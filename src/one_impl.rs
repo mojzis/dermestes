@@ -108,6 +108,9 @@ impl<'a> Check<'a> {
                         Target::Abc => fact.abc_marker = true,
                         Target::Protocol => fact.is_protocol = true,
                         Target::Object => {}
+                        // Outside the repository: it cannot be a repository class
+                        // of the same name, so it poisons only this class.
+                        Target::External => fact.unknown_edge = true,
                         Target::AbcMeta | Target::Module(_) | Target::Unknown => {
                             fact.unknown_edge = true;
                             unresolved_names.extend(base.last().map(String::as_str));
