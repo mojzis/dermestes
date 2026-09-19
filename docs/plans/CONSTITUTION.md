@@ -91,8 +91,9 @@ Always applied, in every check:
   `ignore-decorators` can narrow or extend this.
 - Names in `__all__`, names re-exported from an `__init__.py`, and dunder methods are exempt.
 - A name is exempt when it appears as a whole string argument to `getattr`, `setattr`,
-  `hasattr`, `monkeypatch.setattr`, `patch`, `patch.object`, or as a key in a dict or
-  registry literal. Docstrings, free text and string (forward-reference) type annotations
+  `hasattr`, `monkeypatch.setattr`, `patch`, `patch.object`, or as a key in a registry
+  literal: a dict whose value at that key is a callable or class reference
+  (`{"csv": CsvExporter}`, not `{"done": 3}`; amendment 1, disagreement 3). Docstrings, free text and string (forward-reference) type annotations
   (`"HasID"`, `bound="HasID"`) never count; those are static references. Reason: the broad
   form suppressed real candidates because the names are common words (`"done"`, `"fetch"`,
   a pandas column called `"annual_kwh"`).

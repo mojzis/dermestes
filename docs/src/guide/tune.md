@@ -25,6 +25,6 @@ through the closing `:`), with a mandatory reason: `# dermestes: keep <reason>`.
 re-exported from an `__init__.py`, dunder methods, ABCs passed to
 `X.register(...)`, and any name passed as a string to `getattr`, `setattr`,
 `hasattr`, `patch` or `patch.object` (a dotted path counts by its last part), or
-used as a string dict key. Docstrings and string type annotations do not count.
+used as a string key in a registry dict (`{"csv": CsvExporter}`). Docstrings and string type annotations do not count.
 
 next: run `dermestes --all`

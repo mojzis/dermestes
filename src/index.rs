@@ -80,7 +80,7 @@ pub struct Index {
     /// Names listed in any `__all__`.
     pub all_names: HashSet<String>,
     /// Names in string arguments to `getattr`/`setattr`/`hasattr`/`patch`/`patch.object`
-    /// (last segment of a dotted path), and string dict keys.
+    /// (last segment of a dotted path), and string keys of registry dict entries.
     pub strings: HashSet<String>,
     /// `X` for every `X.register` seen: ABC virtual subclass registration.
     pub registered: HashSet<String>,
@@ -265,9 +265,14 @@ impl<'s> Walker<'s> {
             "assignment" | "augmented_assignment" if top => self.dunder_all(node),
             "string" => return,
             "call" => self.lookup_call(node),
+            // A registry entry, `{"csv": CsvExporter}`: the key names a symbol
+            // looked up at runtime. `{"done": 3}` is data, not a lookup.
             "pair" => {
+                let is_reference = node.child_by_field_name("value").is_some_and(|value| {
+                    matches!(value.kind(), "identifier" | "attribute" | "lambda")
+                });
                 let key = node.child_by_field_name("key").and_then(|key| self.string(key));
-                self.strings.extend(key.filter(|key| is_identifier(key)));
+                self.strings.extend(key.filter(|key| is_reference && is_identifier(key)));
             }
             "attribute" => {
                 let attr = node.child_by_field_name("attribute").map(|n| self.text(n));
@@ -618,13 +623,13 @@ mod tests {
     #[test]
     fn collects_all_strings_and_register() {
         let src = "__all__ = ['A'] + [\"B\"]\nx = getattr(m, 'C')\nf'{y}z'\nBase.register(int)\n\
-                   patch('p.q.D')\nmock.patch.object(m, 'E')\nr = {'F': 1}\n\
+                   patch('p.q.D')\nmock.patch.object(m, 'E')\nr = {'F': f, 'K': 1}\n\
                    def g(x: 'G') -> 'H':\n    \"\"\"I\"\"\"\nJ = 'J'\n";
         let extracted = extract_one("m.py", src);
         assert_eq!(extracted.all_names, vec!["A", "B"], "__all__");
         let mut strings = extracted.strings.clone();
         strings.sort();
-        assert_eq!(strings, vec!["C", "D", "E", "F"], "lookups and dict keys only");
+        assert_eq!(strings, vec!["C", "D", "E", "F"], "lookups and registry keys only");
         assert_eq!(extracted.registered, vec!["Base"], "register");
     }
 
