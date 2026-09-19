@@ -11,7 +11,9 @@ public = ["src/mypkg/api/**"]
 disable = ["one-impl"]
 ```
 
-- `exclude`: files never indexed.
+- `exclude`: files never indexed. Defaults to `examples/**`, `docs/**` and
+  `**/test/resources/**`, where the explicit parameter is the lesson; setting
+  it replaces the defaults, so repeat any you still want.
 - `test-paths`: files whose code is counted as tests, never as targets.
 - `ignore-decorators`: decorators that no longer exempt a function from
   `const-param`, by dotted name or suffix (`cache` covers `functools.cache`).
