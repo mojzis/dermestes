@@ -11,8 +11,20 @@ use tempfile::TempDir;
 const OLD: &str = "from abc import ABC, abstractmethod\n\n\nclass Old(ABC):\n    @abstractmethod\n    def run(self): ...\n\n\nclass OldImpl(Old):\n    def run(self):\n        return 1\n";
 const NEW: &str = "from abc import ABC, abstractmethod\n\n\nclass New(ABC):\n    @abstractmethod\n    def run(self): ...\n\n\nclass NewImpl(New):\n    def run(self):\n        return 1\n";
 
+/// A command with every inherited `GIT_*` variable removed. A hook's `GIT_DIR`
+/// leaking in would point git at the outer repository instead of the temp one.
+fn isolated(program: &str) -> Command {
+    let mut command = Command::new(program);
+    for (key, _) in std::env::vars_os() {
+        if key.to_string_lossy().starts_with("GIT_") {
+            command.env_remove(key);
+        }
+    }
+    command
+}
+
 fn git(dir: &Path, args: &[&str]) {
-    let status = Command::new("git")
+    let status = isolated("git")
         .args(["-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false"])
         .args(args)
         .current_dir(dir)
@@ -22,7 +34,7 @@ fn git(dir: &Path, args: &[&str]) {
 }
 
 fn dermestes(dir: &Path, args: &[&str]) -> (Option<i32>, String) {
-    let output = Command::new(env!("CARGO_BIN_EXE_dermestes"))
+    let output = isolated(env!("CARGO_BIN_EXE_dermestes"))
         .args(args)
         .current_dir(dir)
         .output()
