@@ -114,7 +114,7 @@ Always applied, in every check:
   same arguments. Those are pass-through candidates.
 - Test code is never a target. Test usages are counted separately from production usages. A test usage vetoes a finding where the check says so, and is not printed otherwise.
 - If a base class or callee cannot be resolved to a definition inside the repo, the hierarchy or call is unknown, and nothing depending on it is flagged.
-- Inline suppression: `# dermestes: keep <reason>` on the definition line. The reason is mandatory.
+- Inline suppression: `# dermestes: keep <reason>` on any line of the definition's header, from its first decorator to the line with the closing `:`. The reason is mandatory. (Amended: `ruff format` moves the comment to a wrapped header's `):` line.)
 
 ## Interface contract
 

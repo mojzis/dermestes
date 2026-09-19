@@ -29,8 +29,9 @@ pub enum Binding {
     Unknown,
 }
 
-/// A `# dermestes: keep` marker on a class definition line.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// A `# dermestes: keep` marker on a definition's header.
+/// Ordered so the strongest marker on a multi-line header wins.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Keep {
     None,
     WithReason,
@@ -392,11 +393,29 @@ impl<'s> Walker<'s> {
             metaclass,
             methods,
             abstract_methods,
-            keep: keep_marker(self.lines.get(line).copied().unwrap_or("")),
+            keep: self.header_keep(node),
         });
         if let Some(body) = node.child_by_field_name("body") {
             self.visit(body, &qualname, false);
         }
+    }
+
+    /// The `keep` marker anywhere in a definition's header: its decorators
+    /// through the line with the closing `:`, which is where `ruff format`
+    /// moves a comment when it wraps the header.
+    fn header_keep(&self, node: Node<'_>) -> Keep {
+        let start = node
+            .parent()
+            .filter(|parent| parent.kind() == "decorated_definition")
+            .unwrap_or(node)
+            .start_position()
+            .row;
+        let mut cursor = node.walk();
+        let colon = node.children(&mut cursor).find(|child| child.kind() == ":");
+        let end =
+            colon.map_or(start, |colon| colon.start_position().row).max(node.start_position().row);
+        let lines = self.lines.get(start..=end).unwrap_or_default();
+        lines.iter().map(|line| keep_marker(line)).max().unwrap_or(Keep::None)
     }
 
     /// `@abstractmethod`, `@abc.abstractmethod`, `@abstractproperty`, ...

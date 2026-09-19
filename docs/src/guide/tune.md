@@ -18,8 +18,8 @@ disable = ["one-impl"]
 - `public`: globs treated as public API and exempt.
 - `disable`: check ids to skip.
 
-**Suppression** is per definition, on its line, with a mandatory reason:
-`# dermestes: keep <reason>`.
+**Suppression** is per definition, on any line of its header (decorators
+through the closing `:`), with a mandatory reason: `# dermestes: keep <reason>`.
 
 **Always exempt**, whatever the config: test code, names in `__all__`, names
 re-exported from an `__init__.py`, dunder methods, ABCs passed to

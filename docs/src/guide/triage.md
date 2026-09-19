@@ -17,9 +17,9 @@ be structural (it has every method, it never subclasses the Protocol).
 1. Read both ends of the evidence. Is the abstraction a deliberate seam the
    counts cannot see (a plugin point, a public API)?
 2. If not, apply the `suggest:` line, then run the test suite.
-3. If it is deliberate, suppress it on the definition line with a reason:
-   `# dermestes: keep <reason>`. Without a reason it still reports, with a
-   `keep: missing reason` line.
+3. If it is deliberate, suppress it with a reason on any line of its header
+   (a decorator through the closing `:`): `# dermestes: keep <reason>`.
+   Without a reason it still reports, with a `keep: missing reason` line.
 
 **Known misses** (it stays silent, by design):
 
