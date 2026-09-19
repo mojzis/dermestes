@@ -3,6 +3,7 @@
 //! The flags are exactly the constitution's interface contract; nothing is
 //! added until a real repository needs it.
 
+use std::collections::{HashMap, HashSet};
 use std::io::Write;
 
 use std::path::{Path, PathBuf};
@@ -11,7 +12,7 @@ use anyhow::{Context, Result};
 use clap::{Parser, Subcommand, ValueEnum};
 
 use crate::config::Config;
-use crate::index::Index;
+use crate::index::Parsed;
 use crate::one_impl::Finding;
 use crate::{discovery, git, guide, one_impl};
 
@@ -105,29 +106,26 @@ impl Cli {
         Ok(Outcome::Findings)
     }
 
-    /// Index the whole repository, run the checks, then keep only what the
-    /// diff touched unless `--all`.
+    /// Index the whole repository and run the checks. Unless `--all`, run them
+    /// again on the base side and keep only what is new at head.
     fn findings(&self, root: &Path) -> Result<Vec<Finding>> {
         let config = Config::load(root)?;
         // Read the diff first: a bad `--base` should fail before any parsing.
-        let changes = if self.all {
+        let base = if self.all {
             None
         } else {
-            Some(git::changed_lines(root, self.base.as_deref().unwrap_or("HEAD"))?)
+            Some(git::base_sources(root, self.base.as_deref().unwrap_or("HEAD"))?)
         };
-        if !config.enabled(one_impl::ID) {
+        if !config.enabled(one_impl::ID) || base.as_ref().is_some_and(HashMap::is_empty) {
             return Ok(Vec::new());
         }
         let tree = discovery::discover(root, &config.exclude)?;
-        let index = Index::build(&tree.files, &tree.projects, &config);
-        let mut findings = one_impl::run(&index, &config);
-        if let Some(changes) = changes {
-            findings.retain(|finding| {
-                [&finding.site, &finding.implementation]
-                    .iter()
-                    .any(|site| git::touches(&changes, &site.path, site.line))
-            });
-        }
+        let head = Parsed::new(&tree.files, &tree.projects, &config);
+        let Some(base) = base else { return Ok(one_impl::run(&head.into_index(), &config)) };
+        let before = one_impl::run(&head.with_sources(&base, &config).into_index(), &config);
+        let before: HashSet<_> = before.iter().map(Finding::key).collect();
+        let mut findings = one_impl::run(&head.into_index(), &config);
+        findings.retain(|finding| !before.contains(&finding.key()));
         Ok(findings)
     }
 }

@@ -16,7 +16,7 @@ the code is laid out.
 | `index.rs` | Parallel tree-sitter parse; per file: module names, import table, classes, `__all__`, dynamic-lookup strings and registry dict keys, `X.register`. |
 | `resolve.rs` | Resolves a dotted base expression to an indexed class, `ABC`/`ABCMeta`/`Protocol`/`object`, or unknown. |
 | `one_impl.rs` | The `one-impl` check and the `Finding` it produces. |
-| `git.rs` | The only subprocess: `git diff --unified=0`, parsed into changed line ranges. |
+| `git.rs` | The only subprocess: `git diff --unified=0`, plus the working tree, rebuilds each changed file's base side. |
 
 ## A run
 
@@ -24,8 +24,11 @@ the code is laid out.
 directory, else the nearest with `pyproject.toml`, else the cwd), loads the
 config there, reads the diff (unless `--all`), walks and indexes
 the **whole** repository (counting users needs every file), runs the check,
-then keeps a finding only if the abstraction's or its implementation's `class`
-line falls inside a changed hunk. Output is sorted by path, then line.
+then, unless `--all`, runs the checks again on the base side and keeps only
+the findings new at head. The base side is the head's parsed files with each
+file the diff changed rebuilt from the diff (`git.rs`) and re-parsed; a
+finding's identity is its check, path and name, since lines shift. Output is
+sorted by path, then line.
 
 ## Resolution
 

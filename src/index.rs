@@ -6,7 +6,7 @@
 //!
 //! Nothing here resolves a name across files; that is [`crate::resolve`].
 
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 use anyhow::{Context, Result};
 use rayon::prelude::*;
@@ -87,6 +87,7 @@ pub struct Index {
 }
 
 /// Per-file extraction output before class ids are assigned.
+#[derive(Debug, Clone)]
 struct Extracted {
     info: FileInfo,
     classes: Vec<Class>,
@@ -95,13 +96,21 @@ struct Extracted {
     registered: Vec<String>,
 }
 
-impl Index {
-    /// Parse and extract every file in parallel, then merge in path order.
-    /// A file that cannot be read or parsed is skipped with a note on stderr.
+/// Every file parsed, before the index is assembled. Diff mode derives the
+/// base side from the head side by re-parsing only the files the diff changed.
+#[derive(Debug, Clone)]
+pub struct Parsed {
+    roots: Vec<String>,
+    files: BTreeMap<String, Extracted>,
+}
+
+impl Parsed {
+    /// Parse and extract every file in parallel. A file that cannot be read or
+    /// parsed is skipped with a note on stderr.
     ///
     /// `projects` are the directories holding a `pyproject.toml`, as `/`-ended
     /// prefixes; each is an import root, as is the repository root.
-    pub fn build(files: &[SourcePath], projects: &[String], config: &Config) -> Self {
+    pub fn new(files: &[SourcePath], projects: &[String], config: &Config) -> Self {
         let roots = import_roots(files, projects);
         let extracted: Vec<Result<Extracted>> = files
             .par_iter()
@@ -111,15 +120,57 @@ impl Index {
                 extract(&file.relative, &source, &roots, config)
             })
             .collect();
-
-        let mut index = Self::default();
+        let mut parsed = Self { roots, files: BTreeMap::new() };
         for result in extracted {
             match result {
-                Ok(extracted) => index.add(extracted),
+                Ok(extracted) => {
+                    parsed.files.insert(extracted.info.relative.clone(), extracted);
+                }
                 Err(err) => eprintln!("dermestes: skipped: {err:#}"),
             }
         }
+        parsed
+    }
+
+    /// The same tree with some files replaced (`Some(source)`) or removed
+    /// (`None`). A replacement that does not parse is dropped quietly: its
+    /// head side already had its note.
+    #[must_use]
+    pub fn with_sources(&self, sources: &HashMap<String, Option<String>>, config: &Config) -> Self {
+        let replaced: Vec<Extracted> = sources
+            .par_iter()
+            .filter_map(|(relative, source)| {
+                let is_python =
+                    std::path::Path::new(relative).extension().is_some_and(|ext| ext == "py")
+                        && !matches_any(relative, &config.exclude);
+                let source = source.as_deref().filter(|_| is_python)?;
+                extract(relative, source, &self.roots, config).ok()
+            })
+            .collect();
+        let mut parsed = self.clone();
+        for relative in sources.keys() {
+            parsed.files.remove(relative);
+        }
+        for extracted in replaced {
+            parsed.files.insert(extracted.info.relative.clone(), extracted);
+        }
+        parsed
+    }
+
+    /// Assign ids and merge, in path order.
+    pub fn into_index(self) -> Index {
+        let mut index = Index::default();
+        for extracted in self.files.into_values() {
+            index.add(extracted);
+        }
         index
+    }
+}
+
+impl Index {
+    /// Parse `files` and assemble the index in one go.
+    pub fn build(files: &[SourcePath], projects: &[String], config: &Config) -> Self {
+        Parsed::new(files, projects, config).into_index()
     }
 
     fn add(&mut self, mut extracted: Extracted) {

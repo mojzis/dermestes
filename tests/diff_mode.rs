@@ -1,5 +1,5 @@
 //! Diff mode against a real temporary git repository: the whole tree is
-//! indexed, but only findings whose definitions the diff touched are reported.
+//! indexed on both sides, and only findings new at head are reported.
 
 #![allow(clippy::expect_used, reason = "integration-test helpers treat setup failures as fatal")]
 
@@ -100,4 +100,30 @@ fn a_linked_worktree_elsewhere_is_its_own_root() {
     assert!(!stdout.contains("Old"), "pre-existing finding is not: {stdout}");
     let (_, all) = dermestes(&worktree.join("pkg"), &["--all"]);
     assert!(all.contains("old.py") && all.contains("pkg/new.py"), "whole worktree: {all}");
+}
+
+/// Deleting the second implementation creates a one-impl without touching the
+/// ABC's or the remaining impl's lines: findings new at head are reported.
+#[test]
+fn a_deletion_that_creates_a_finding_is_reported() {
+    let tmp = TempDir::new().expect("temp dir");
+    git(tmp.path(), &["init", "-q"]);
+    std::fs::write(tmp.path().join("old.py"), OLD).expect("write");
+    std::fs::write(
+        tmp.path().join("second.py"),
+        "from old import Old\n\n\nclass Second(Old):\n    def run(self):\n        return 2\n",
+    )
+    .expect("write");
+    git(tmp.path(), &["add", "."]);
+    git(tmp.path(), &["commit", "-q", "-m", "two impls"]);
+    assert_eq!(dermestes(tmp.path(), &[]).0, Some(0), "two impls: quiet");
+
+    std::fs::remove_file(tmp.path().join("second.py")).expect("delete");
+    let (code, stdout) = dermestes(tmp.path(), &[]);
+    assert_eq!(code, Some(1), "the deletion made Old a one-impl: {stdout}");
+    assert!(stdout.starts_with("one-impl old.py:4 Old "), "reported at head: {stdout}");
+
+    git(tmp.path(), &["commit", "-q", "-am", "drop second"]);
+    let (code, stdout) = dermestes(tmp.path(), &["--base", "HEAD~1"]);
+    assert_eq!(code, Some(1), "also against a base ref: {stdout}");
 }

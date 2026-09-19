@@ -35,6 +35,13 @@ pub struct Finding {
     pub suggest: String,
 }
 
+impl Finding {
+    /// What identifies a finding across base and head: line numbers shift.
+    pub fn key(&self) -> (&'static str, &str, &str) {
+        (self.check, &self.site.path, &self.site.name)
+    }
+}
+
 /// Method sets per class, inherited through resolved bases.
 #[derive(Debug, Clone, Default)]
 struct Methods {
