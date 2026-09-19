@@ -138,7 +138,7 @@ impl Parsed {
     /// prefixes; each is an import root, as is the repository root.
     pub fn new(files: &[SourcePath], projects: &[String], config: &Config) -> Self {
         let roots = import_roots(files, projects);
-        let extracted: Vec<Result<Extracted>> = files
+        let extracted: Vec<Result<Option<Extracted>>> = files
             .par_iter()
             .map(|file| {
                 let source = std::fs::read_to_string(&file.path)
@@ -149,9 +149,10 @@ impl Parsed {
         let mut parsed = Self { roots, files: BTreeMap::new() };
         for result in extracted {
             match result {
-                Ok(extracted) => {
+                Ok(Some(extracted)) => {
                     parsed.files.insert(extracted.info.relative.clone(), extracted);
                 }
+                Ok(None) => {}
                 Err(err) => eprintln!("dermestes: skipped: {err:#}"),
             }
         }
@@ -170,7 +171,7 @@ impl Parsed {
                     std::path::Path::new(relative).extension().is_some_and(|ext| ext == "py")
                         && !matches_any(relative, &config.exclude);
                 let source = source.as_deref().filter(|_| is_python)?;
-                extract(relative, source, &self.roots, config).ok()
+                extract(relative, source, &self.roots, config).ok().flatten()
             })
             .collect();
         let mut parsed = self.clone();
@@ -292,8 +293,21 @@ fn is_identifier(name: &str) -> bool {
         && chars.all(|c| c.is_alphanumeric() || c == '_')
 }
 
-/// Parse one file and pull out everything the index keeps.
-fn extract(relative: &str, source: &str, roots: &[String], config: &Config) -> Result<Extracted> {
+/// Parse one file and pull out everything the index keeps. A generated file
+/// is `None`: it is fixed at its generator, not by hand.
+fn extract(
+    relative: &str,
+    source: &str,
+    roots: &[String],
+    config: &Config,
+) -> Result<Option<Extracted>> {
+    if source
+        .lines()
+        .take(5)
+        .any(|line| line.contains("Do not edit") || line.contains("DO NOT EDIT"))
+    {
+        return Ok(None);
+    }
     let mut parser = tree_sitter::Parser::new();
     parser
         .set_language(&tree_sitter_python::LANGUAGE.into())
@@ -341,7 +355,7 @@ fn extract(relative: &str, source: &str, roots: &[String], config: &Config) -> R
         under_main: false,
     };
     walker.visit(root, "", true);
-    Ok(Extracted {
+    Ok(Some(Extracted {
         info: walker.info,
         classes: walker.classes,
         all_names: walker.all_names,
@@ -352,7 +366,7 @@ fn extract(relative: &str, source: &str, roots: &[String], config: &Config) -> R
         refs: walker.refs,
         top_names: walker.top_names,
         dynamic: walker.dynamic,
-    })
+    }))
 }
 
 /// One file's walk. Positions in `classes` and `functions` are file-local
@@ -737,7 +751,9 @@ mod tests {
     use super::*;
 
     fn extract_one(relative: &str, source: &str) -> Extracted {
-        extract(relative, source, &roots(&["", "src/"]), &Config::default()).expect("parses")
+        extract(relative, source, &roots(&["", "src/"]), &Config::default())
+            .expect("parses")
+            .expect("not generated")
     }
 
     fn roots(prefixes: &[&str]) -> Vec<String> {
@@ -816,6 +832,15 @@ mod tests {
         assert_eq!(keep_marker("class A:  # dermestes: keep  "), Keep::MissingReason, "spaces");
         assert_eq!(keep_marker("class A:  # dermestes: keeper"), Keep::None, "other word");
         assert_eq!(keep_marker("class A:  # dermestes: keep api"), Keep::WithReason, "reason");
+    }
+
+    #[test]
+    fn generated_files_are_skipped() {
+        let src = "# Generated from _async.py. Do not edit.\ndef f(): ...\n";
+        let extracted = extract("m.py", src, &[], &Config::default()).expect("parses");
+        assert!(extracted.is_none(), "a generated file is not indexed");
+        let late = "\n\n\n\n\n# DO NOT EDIT\n";
+        assert!(extract("m.py", late, &[], &Config::default()).expect("ok").is_some(), "line 6");
     }
 
     #[test]

@@ -13,7 +13,7 @@ the code is laid out.
 | `guide.rs` | Serves `docs/src/guide/*.md` verbatim; picks a topic from `./pyproject.toml`. |
 | `config.rs` | `[tool.dermestes]` with the constitution's five keys; unknown keys are errors. Glob matching. |
 | `discovery.rs` | gitignore-aware walk for `.py` files and `pyproject.toml` directories, minus `exclude` (copied from biston). |
-| `index.rs` | Parallel tree-sitter parse; per file: module names, import table, classes, `__all__`, dynamic-lookup strings and registry dict keys, `X.register`. |
+| `index.rs` | Parallel tree-sitter parse, skipping generated files (`DO NOT EDIT` in the first 5 lines); per file: module names, import table, classes, `__all__`, dynamic-lookup strings and registry dict keys, `X.register`. |
 | `calls.rs` | The call-site half of the same walk: functions and parameters, calls and their arguments, function and class scopes, names used as values. |
 | `resolve.rs` | Resolves a dotted expression to an indexed class, function or module constant, `ABC`/`ABCMeta`/`Protocol`/`object`, external, or unknown. |
 | `one_impl.rs` | The `one-impl` check and the `Finding` it produces. |
