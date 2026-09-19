@@ -11,9 +11,9 @@ them as deletion candidates an agent can act on.
 | Phase | id | Flags |
 |---|---|---|
 | 1 | `one-impl` | ABC or Protocol with exactly one production implementation |
-| 2 | `one-caller` | Function or private method with exactly one production call site |
-| 2 | `pass-through` | Function whose body only delegates to another call |
-| 3 | `const-param` | Parameter receiving the same value at every call site, or a default never overridden |
+| 2 | `const-param` | Parameter whose default is never overridden, or that receives the same literal, at every call site |
+| 3 | `pass-through` | Function whose body only forwards its arguments to another repo function |
+| 3 | `one-caller` | Private function with one production call site and a one-statement body |
 
 ## Usage
 

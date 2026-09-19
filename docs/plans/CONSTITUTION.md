@@ -35,21 +35,83 @@ Each check has a stable id used in output, config and suppression markers.
 | Phase | id | Flags |
 |---|---|---|
 | 1 | `one-impl` | ABC or Protocol with exactly one production implementation |
-| 2 | `one-caller` | Function or private method with exactly one production call site |
-| 2 | `pass-through` | Function whose body only delegates to another call |
-| 3 | `const-param` | Parameter receiving the same value at every call site, or a default never overridden |
+| 2 | `const-param` | Parameter whose default is never overridden, or that receives the same literal, at every call site |
+| 3 | `pass-through` | Function whose body only forwards its arguments to another repo function |
+| 3 | `one-caller` | Private function with one production call site and a one-statement body |
+
+Definitions:
+
+- **one-impl.**
+  - A Protocol's implementations are counted structurally, not by subclass. In the corpus
+    all 3 Protocols with implementations had zero nominal subclasses.
+  - A plain base class with no abstract methods and exactly one production subclass is
+    deferred to "later candidates". It would also match exception hierarchies and mixins.
+    It is a known miss.
+  - An intermediate abstract class is never counted as an implementation. A class counts as
+    abstract only while it has unimplemented abstract methods. An `ABC` with none is
+    concrete.
+- **const-param.** "Same value" means one of:
+  - a literal (`True`, `None`, `0.5`, `"cr"`);
+  - a module-level constant resolved to its definition;
+  - the parameter omitted, so the default applies.
+
+  Two arguments that merely read the same (`conn` at two sites) are never "the same
+  value". One call site is enough. `Class(...)` calls count as calls to `__init__`. An
+  explicit literal equal to the default counts as not overriding it. A test call that
+  passes a different value counts as variation, so the check stays silent.
+- **pass-through.** The body, excluding the docstring, is one `return f(...)`,
+  `await f(...)` or `f(...)` statement where:
+  - `f` resolves to a function defined in the repo;
+  - every argument is a parameter name, `self`/`cls` attribute or short literal;
+  - `f(...)` is the outermost node: no `bool(...)`, method chain or subscript around it.
+
+  Bodies that are SQL, templates or dict literals are not delegation.
+- **one-caller.** Only private (`_x`) functions whose body is a single simple statement,
+  with no test caller. This check is narrowed rather than removed: as first written it
+  was 4 % precise (20 of 452), and after the narrowing it is 42 %. Revisit after phase 3
+  data.
 
 Candidates for later, only after the above prove useful on real repos: class with `__init__` plus one method, `**kwargs` never populated, wrap-and-reraise handlers, field-by-field mirrored models.
 
-Each phase must be usable on its own and validated on a real repository before the next begins.
+Each phase must be usable on its own and validated before the next begins, against
+the labelled corpus in `~/git/pp/dermestes/truth/` (precision on non-debatable rows, trap
+hits, recall on candidates) and at least one repo with ≥5 abstractions of the check's kind.
+Reason: `one-impl` has only 8 ABC/Protocol targets across `~/git`, and all of them are
+correctly silent, so no repo there can validate its positive path.
 
 ## Precision guards
 
 Always applied, in every check:
 
-- Decorated symbols are exempt from caller-counting checks (routes, fixtures, CLI commands, DI providers, registries). `ignore-decorators` can narrow or extend this.
+- **Framework entry points.** Decorated functions and methods are exempt from **every**
+  check, not only caller counting: routes, fixtures, Typer commands, DI providers,
+  registries and marimo cells otherwise produce pass-through and const-param noise. So is
+  any function whose only call site is under `if __name__ == "__main__":`. Class
+  decorators (`@runtime_checkable`, `@dataclass`) do not exempt a class.
+  `ignore-decorators` can narrow or extend this.
 - Names in `__all__`, names re-exported from an `__init__.py`, and dunder methods are exempt.
-- A name that appears as a string literal or `getattr` argument anywhere in the repo is exempt.
+- A name is exempt when it appears as a whole string argument to `getattr`, `setattr`,
+  `hasattr`, `monkeypatch.setattr`, `patch`, `patch.object`, or as a key in a dict or
+  registry literal. Docstrings, free text and string (forward-reference) type annotations
+  (`"HasID"`, `bound="HasID"`) never count; those are static references. Reason: the broad
+  form suppressed real candidates because the names are common words (`"done"`, `"fetch"`,
+  a pandas column called `"annual_kwh"`).
+- **A symbol referenced as a value anywhere is exempt from every caller-counting check.**
+  That covers being passed as an argument, assigned, returned, put in a container, or
+  registered (`Depends(f)`, `env.filters[...] = f`, `partial(f)`, `to_thread(f)`,
+  `x is f`). Reason: a callback's call sites are invisible.
+- **Calls are counted only after resolution.** A bare-name call counts only when the name
+  resolves, through imports including `import x as y`, to the definition. An attribute
+  call `obj.name(...)` counts only when `obj` resolves to the defining module or class.
+  Anything else is unknown, and unknown means silent. Reason: `dict.update` counted as
+  calls to a Typer command called `update`; `jobs.get` got 154 calls, all of them
+  `dict.get`.
+- **Test callers veto.** One-caller and pass-through stay silent when any test calls or
+  patches the symbol, because that makes it a seam. For const-param, a test passing a
+  different value counts as variation.
+- **Overrides are exempt.** Methods that override a base-class method, with the base
+  resolved or not, are exempt, except overrides whose body only calls `super()` with the
+  same arguments. Those are pass-through candidates.
 - Test code is never a target. Test usages are counted separately from production usages and shown as such.
 - If a base class or callee cannot be resolved to a definition inside the repo, the hierarchy or call is unknown, and nothing depending on it is flagged.
 - Inline suppression: `# dermestes: keep <reason>` on the definition line. The reason is mandatory.
