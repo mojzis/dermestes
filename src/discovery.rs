@@ -16,14 +16,26 @@ pub struct SourcePath {
     pub relative: String,
 }
 
-/// Every non-excluded `.py` file under `root`, sorted by relative path.
-/// Hidden directories (`.venv`, `.tox`) and gitignored files are skipped.
-pub fn discover(root: &Path, exclude: &[String]) -> Result<Vec<SourcePath>> {
-    let mut files = Vec::new();
+/// What the walk found.
+#[derive(Debug, Clone, Default)]
+pub struct Tree {
+    /// Every non-excluded `.py` file, sorted by relative path.
+    pub files: Vec<SourcePath>,
+    /// Directories holding a `pyproject.toml` (`""` for the root), each a
+    /// project whose packages import from there: uv workspace members,
+    /// feast's `sdk/python`.
+    pub projects: Vec<String>,
+}
+
+/// Walk `root`. Hidden directories (`.venv`, `.tox`) and gitignored files are skipped.
+pub fn discover(root: &Path, exclude: &[String]) -> Result<Tree> {
+    let mut tree = Tree::default();
     for entry in WalkBuilder::new(root).build() {
         let entry = entry.context("error walking directory")?;
         let path = entry.into_path();
-        if path.extension().is_none_or(|ext| ext != "py") || !path.is_file() {
+        let name = path.file_name().unwrap_or_default();
+        let is_python = path.extension().is_some_and(|ext| ext == "py");
+        if !(is_python || name == "pyproject.toml") || !path.is_file() {
             continue;
         }
         let relative = path
@@ -33,12 +45,19 @@ pub fn discover(root: &Path, exclude: &[String]) -> Result<Vec<SourcePath>> {
             .map(|part| part.as_os_str().to_string_lossy())
             .collect::<Vec<_>>()
             .join("/");
-        if !matches_any(&relative, exclude) {
-            files.push(SourcePath { path, relative });
+        if matches_any(&relative, exclude) {
+            continue;
+        }
+        if is_python {
+            tree.files.push(SourcePath { path, relative });
+        } else {
+            let dir = relative.strip_suffix("pyproject.toml").unwrap_or_default();
+            tree.projects.push(dir.to_owned());
         }
     }
-    files.sort_by(|a, b| a.relative.cmp(&b.relative));
-    Ok(files)
+    tree.files.sort_by(|a, b| a.relative.cmp(&b.relative));
+    tree.projects.sort();
+    Ok(tree)
 }
 
 #[cfg(test)]
@@ -46,7 +65,12 @@ mod tests {
     use super::*;
 
     fn relatives(root: &Path, exclude: &[String]) -> Vec<String> {
-        discover(root, exclude).expect("walks").into_iter().map(|file| file.relative).collect()
+        discover(root, exclude)
+            .expect("walks")
+            .files
+            .into_iter()
+            .map(|file| file.relative)
+            .collect()
     }
 
     #[test]
@@ -61,6 +85,16 @@ mod tests {
             vec!["a.py", "pkg/m.py", "z.py"],
             "sorted, .py only, exclude applies at any depth"
         );
+    }
+
+    #[test]
+    fn records_project_directories() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        std::fs::create_dir_all(dir.path().join("members/api")).expect("mkdir");
+        std::fs::write(dir.path().join("pyproject.toml"), "").expect("write");
+        std::fs::write(dir.path().join("members/api/pyproject.toml"), "").expect("write");
+        let tree = discover(dir.path(), &[]).expect("walks");
+        assert_eq!(tree.projects, vec!["", "members/api/"], "root and member, as prefixes");
     }
 
     #[test]

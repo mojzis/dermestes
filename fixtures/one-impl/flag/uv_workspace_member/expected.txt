@@ -1,0 +1,3 @@
+one-impl backoffice/backoffice/cache.py:4 CacheBackend (ABC, 1 abstract methods)
+  impl: backoffice/backoffice/disk_cache.py:4 DiskCache
+  suggest: inline into DiskCache, delete CacheBackend

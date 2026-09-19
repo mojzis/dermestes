@@ -143,7 +143,7 @@ mod tests {
             std::fs::write(&path, source).expect("write");
             paths.push(SourcePath { path, relative: (*relative).to_owned() });
         }
-        let index = Index::build(&paths, &Config::default());
+        let index = Index::build(&paths, &[], &Config::default());
         (dir, index)
     }
 

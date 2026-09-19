@@ -98,14 +98,17 @@ struct Extracted {
 impl Index {
     /// Parse and extract every file in parallel, then merge in path order.
     /// A file that cannot be read or parsed is skipped with a note on stderr.
-    pub fn build(files: &[SourcePath], config: &Config) -> Self {
-        let src_layout = files.iter().any(|file| file.relative.starts_with("src/"));
+    ///
+    /// `projects` are the directories holding a `pyproject.toml`, as `/`-ended
+    /// prefixes; each is an import root, as is the repository root.
+    pub fn build(files: &[SourcePath], projects: &[String], config: &Config) -> Self {
+        let roots = import_roots(files, projects);
         let extracted: Vec<Result<Extracted>> = files
             .par_iter()
             .map(|file| {
                 let source = std::fs::read_to_string(&file.path)
                     .with_context(|| format!("cannot read {}", file.relative))?;
-                extract(&file.relative, &source, src_layout, config)
+                extract(&file.relative, &source, &roots, config)
             })
             .collect();
 
@@ -141,20 +144,36 @@ impl Index {
     }
 }
 
-/// Module names for a file: one per root (the repo root, and `src/` when the
-/// repository uses that layout). Paths that are not valid dotted names give none.
-fn module_names(relative: &str, src_layout: bool) -> Vec<String> {
+/// Directory prefixes packages import from: the repository root and every
+/// project directory, each plus its `src/` when files live there.
+fn import_roots(files: &[SourcePath], projects: &[String]) -> Vec<String> {
+    let mut roots: Vec<String> =
+        std::iter::once(String::new()).chain(projects.iter().cloned()).collect();
+    roots.sort();
+    roots.dedup();
+    let with_src: Vec<String> = roots
+        .iter()
+        .map(|root| format!("{root}src/"))
+        .filter(|src| files.iter().any(|file| file.relative.starts_with(src.as_str())))
+        .collect();
+    roots.extend(with_src);
+    roots
+}
+
+/// Module names for a file: one per import root it lies under. Paths that are
+/// not valid dotted names give none.
+fn module_names(relative: &str, roots: &[String]) -> Vec<String> {
     let Some(stem) = relative.strip_suffix(".py") else { return Vec::new() };
     let stem = stem.strip_suffix("/__init__").unwrap_or(stem);
-    let mut candidates = vec![stem];
-    if src_layout {
-        candidates.extend(stem.strip_prefix("src/"));
-    }
-    candidates
-        .into_iter()
+    let mut names: Vec<String> = roots
+        .iter()
+        .filter_map(|root| stem.strip_prefix(root.as_str()))
         .filter(|path| path.split('/').all(is_identifier) && *path != "__init__")
         .map(|path| path.replace('/', "."))
-        .collect()
+        .collect();
+    names.sort();
+    names.dedup();
+    names
 }
 
 fn is_identifier(name: &str) -> bool {
@@ -164,7 +183,7 @@ fn is_identifier(name: &str) -> bool {
 }
 
 /// Parse one file and pull out everything the index keeps.
-fn extract(relative: &str, source: &str, src_layout: bool, config: &Config) -> Result<Extracted> {
+fn extract(relative: &str, source: &str, roots: &[String], config: &Config) -> Result<Extracted> {
     let mut parser = tree_sitter::Parser::new();
     parser
         .set_language(&tree_sitter_python::LANGUAGE.into())
@@ -175,7 +194,7 @@ fn extract(relative: &str, source: &str, src_layout: bool, config: &Config) -> R
         anyhow::bail!("{relative}: syntax error");
     }
 
-    let modules = module_names(relative, src_layout);
+    let modules = module_names(relative, roots);
     let is_init = relative == "__init__.py" || relative.ends_with("/__init__.py");
     // The shortest name is the `src/`-rooted one, the name the package
     // imports itself by; relative imports resolve from it.
@@ -536,14 +555,33 @@ mod tests {
     use super::*;
 
     fn extract_one(relative: &str, source: &str) -> Extracted {
-        extract(relative, source, true, &Config::default()).expect("parses")
+        extract(relative, source, &roots(&["", "src/"]), &Config::default()).expect("parses")
+    }
+
+    fn roots(prefixes: &[&str]) -> Vec<String> {
+        prefixes.iter().map(|&prefix| prefix.to_owned()).collect()
     }
 
     #[test]
     fn module_names_cover_flat_and_src_layouts() {
-        assert_eq!(module_names("pkg/a.py", false), vec!["pkg.a"], "flat");
-        assert_eq!(module_names("src/pkg/__init__.py", true), vec!["src.pkg", "pkg"], "src");
-        assert!(module_names("my-scripts/a.py", false).is_empty(), "not importable");
+        let flat = roots(&[""]);
+        assert_eq!(module_names("pkg/a.py", &flat), vec!["pkg.a"], "flat");
+        let src = roots(&["", "src/"]);
+        assert_eq!(module_names("src/pkg/__init__.py", &src), vec!["pkg", "src.pkg"], "src");
+        assert!(module_names("my-scripts/a.py", &flat).is_empty(), "not importable");
+    }
+
+    #[test]
+    fn project_directories_are_import_roots() {
+        let files = ["api/src/api/m.py", "sdk/python/feast/m.py"]
+            .map(|relative| SourcePath { path: relative.into(), relative: relative.to_owned() });
+        let found = import_roots(&files, &roots(&["", "api/", "sdk/python/"]));
+        assert_eq!(found, roots(&["", "api/", "sdk/python/", "api/src/"]), "member src/ too");
+        assert_eq!(
+            module_names("sdk/python/feast/m.py", &found),
+            vec!["feast.m", "sdk.python.feast.m"],
+            "both"
+        );
     }
 
     #[test]
@@ -600,6 +638,6 @@ mod tests {
 
     #[test]
     fn syntax_errors_are_reported_not_indexed() {
-        assert!(extract("m.py", "class (:\n", false, &Config::default()).is_err(), "skipped");
+        assert!(extract("m.py", "class (:\n", &[], &Config::default()).is_err(), "skipped");
     }
 }

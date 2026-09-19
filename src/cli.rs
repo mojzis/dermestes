@@ -118,8 +118,8 @@ impl Cli {
         if !config.enabled(one_impl::ID) {
             return Ok(Vec::new());
         }
-        let files = discovery::discover(root, &config.exclude)?;
-        let index = Index::build(&files, &config);
+        let tree = discovery::discover(root, &config.exclude)?;
+        let index = Index::build(&tree.files, &tree.projects, &config);
         let mut findings = one_impl::run(&index, &config);
         if let Some(changes) = changes {
             findings.retain(|finding| {
