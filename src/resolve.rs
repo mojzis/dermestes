@@ -1,12 +1,13 @@
 //! Syntactic import resolution.
 //!
-//! A dotted base-class expression becomes a class in the index, a well-known
-//! marker (`ABC`, `Protocol`, ...), or `Unknown`. `Unknown` is the precision fence: nothing that depends on an
-//! unknown edge is ever flagged.
+//! A dotted expression becomes a class, function or constant in the index, a
+//! well-known marker (`ABC`, `Protocol`, ...), or `Unknown`. `Unknown` is the
+//! precision fence: nothing that depends on an unknown edge is ever flagged.
 
 use std::collections::{HashMap, HashSet};
 
-use crate::index::{Binding, ClassId, Index};
+use crate::calls::FnId;
+use crate::index::{Binding, ClassId, Index, Symbol};
 
 /// Re-exports are followed at most this deep, which also stops import cycles.
 const MAX_HOPS: usize = 16;
@@ -15,6 +16,9 @@ const MAX_HOPS: usize = 16;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Target {
     Class(ClassId),
+    Function(FnId),
+    /// A module constant: its file and name are its identity.
+    Constant(usize, String),
     Module(String),
     /// `abc.ABC`
     Abc,
@@ -59,14 +63,16 @@ impl<'a> Resolver<'a> {
     /// Resolve `parts` (e.g. `["core", "sinks", "Sink"]`) in `file`'s module scope.
     pub fn dotted(&self, file: usize, parts: &[String]) -> Target {
         let Some((head, rest)) = parts.split_first() else { return Target::Unknown };
-        let mut target = self.local(file, head);
-        for part in rest {
-            target = match target {
-                Target::Module(module) => self.symbol(&module, part, 0),
-                _ => Target::Unknown,
-            };
+        rest.iter().fold(self.local(file, head), |target, part| self.member(target, part))
+    }
+
+    /// `target.name`, where only a module's attributes are followed.
+    pub fn member(&self, target: Target, name: &str) -> Target {
+        match target {
+            Target::Module(module) => self.symbol(&module, name, 0),
+            Target::External => Target::External,
+            _ => Target::Unknown,
         }
-        target
     }
 
     /// What an import binding refers to.
@@ -74,18 +80,26 @@ impl<'a> Resolver<'a> {
         self.follow(binding, 0)
     }
 
-    fn local(&self, file: usize, name: &str) -> Target {
-        let info = &self.index.files[file];
-        match info.top_classes.get(name) {
-            Some(Some(id)) => return Target::Class(*id),
-            Some(None) => return Target::Unknown,
-            None => {}
+    /// `name` in `file`'s module scope.
+    pub fn local(&self, file: usize, name: &str) -> Target {
+        if let Some(target) = self.top(file, name) {
+            return target;
         }
-        match info.bindings.get(name) {
+        match self.index.files[file].bindings.get(name) {
             Some(binding) => self.follow(binding, 0),
             None if name == "object" => Target::Object,
             None => Target::Unknown,
         }
+    }
+
+    /// A module-level definition of `name` in `file`, if there is one.
+    fn top(&self, file: usize, name: &str) -> Option<Target> {
+        Some(match self.index.files[file].top.get(name)? {
+            Some(Symbol::Class(id)) => Target::Class(*id),
+            Some(Symbol::Function(id)) => Target::Function(*id),
+            Some(Symbol::Constant) => Target::Constant(file, name.to_owned()),
+            None => Target::Unknown,
+        })
     }
 
     fn follow(&self, binding: &Binding, hops: usize) -> Target {
@@ -104,13 +118,10 @@ impl<'a> Resolver<'a> {
         let submodule = format!("{module}.{name}");
         match self.modules.get(module) {
             Some(Some(file)) => {
-                let info = &self.index.files[*file];
-                match info.top_classes.get(name) {
-                    Some(Some(id)) => return Target::Class(*id),
-                    Some(None) => return Target::Unknown,
-                    None => {}
+                if let Some(target) = self.top(*file, name) {
+                    return target;
                 }
-                if let Some(binding) = info.bindings.get(name) {
+                if let Some(binding) = self.index.files[*file].bindings.get(name) {
                     return self.follow(binding, hops + 1);
                 }
                 if self.modules.contains_key(submodule.as_str()) {

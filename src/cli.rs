@@ -11,10 +11,11 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand, ValueEnum};
 
+use serde::Serialize;
+
 use crate::config::Config;
-use crate::index::Parsed;
-use crate::one_impl::Finding;
-use crate::{discovery, git, guide, one_impl};
+use crate::index::{Index, Parsed};
+use crate::{const_param, discovery, git, guide, one_impl};
 
 const ABOUT: &str = "Finds Python abstractions that have not earned their keep.";
 
@@ -78,6 +79,44 @@ pub enum Command {
     },
 }
 
+/// A finding of any check, serialised as that check's own fields.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(untagged)]
+pub enum Finding {
+    OneImpl(one_impl::Finding),
+    ConstParam(const_param::Finding),
+}
+
+impl Finding {
+    fn path_line(&self) -> (&str, usize) {
+        match self {
+            Self::OneImpl(finding) => (&finding.site.path, finding.site.line),
+            Self::ConstParam(finding) => (&finding.path, finding.line),
+        }
+    }
+
+    /// What identifies a finding across base and head: line numbers shift.
+    fn key(&self) -> (&'static str, &str, &str, &str) {
+        match self {
+            Self::OneImpl(f) => (f.check, &f.site.path, &f.site.name, ""),
+            Self::ConstParam(f) => (f.check, &f.path, &f.name, &f.param),
+        }
+    }
+}
+
+/// Every enabled check over `index`, sorted by path, then line.
+fn run_checks(index: &Index, config: &Config) -> Vec<Finding> {
+    let mut findings = Vec::new();
+    if config.enabled(one_impl::ID) {
+        findings.extend(one_impl::run(index, config).into_iter().map(Finding::OneImpl));
+    }
+    if config.enabled(const_param::ID) {
+        findings.extend(const_param::run(index, config).into_iter().map(Finding::ConstParam));
+    }
+    findings.sort_by(|a, b| a.path_line().cmp(&b.path_line()));
+    findings
+}
+
 /// What a completed run found. Errors are the `Err` side of [`Cli::run`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Outcome {
@@ -116,15 +155,15 @@ impl Cli {
         } else {
             Some(git::base_sources(root, self.base.as_deref().unwrap_or("HEAD"))?)
         };
-        if !config.enabled(one_impl::ID) || base.as_ref().is_some_and(HashMap::is_empty) {
+        if base.as_ref().is_some_and(HashMap::is_empty) {
             return Ok(Vec::new());
         }
         let tree = discovery::discover(root, &config.exclude)?;
         let head = Parsed::new(&tree.files, &tree.projects, &config);
-        let Some(base) = base else { return Ok(one_impl::run(&head.into_index(), &config)) };
-        let before = one_impl::run(&head.with_sources(&base, &config).into_index(), &config);
+        let Some(base) = base else { return Ok(run_checks(&head.into_index(), &config)) };
+        let before = run_checks(&head.with_sources(&base, &config).into_index(), &config);
         let before: HashSet<_> = before.iter().map(Finding::key).collect();
-        let mut findings = one_impl::run(&head.into_index(), &config);
+        let mut findings = run_checks(&head.into_index(), &config);
         findings.retain(|finding| !before.contains(&finding.key()));
         Ok(findings)
     }
@@ -139,6 +178,29 @@ fn project_root(cwd: &Path) -> PathBuf {
 }
 
 fn write_text(out: &mut impl Write, finding: &Finding) -> Result<()> {
+    match finding {
+        Finding::OneImpl(finding) => write_one_impl(out, finding),
+        Finding::ConstParam(finding) => write_const_param(out, finding),
+    }
+}
+
+fn write_const_param(out: &mut impl Write, finding: &const_param::Finding) -> Result<()> {
+    let f = finding;
+    writeln!(out, "{} {}:{} {}({})", f.check, f.path, f.line, f.name, f.param)?;
+    let evidence = if f.form == "never-overridden" {
+        format!("default {} never overridden", f.value)
+    } else {
+        format!("always {}", f.value)
+    };
+    writeln!(out, "  calls: {} prod, {} test; {evidence}", f.calls.prod, f.calls.test)?;
+    if f.keep_missing_reason {
+        writeln!(out, "  keep: missing reason")?;
+    }
+    writeln!(out, "  suggest: {}", f.suggest)?;
+    Ok(())
+}
+
+fn write_one_impl(out: &mut impl Write, finding: &one_impl::Finding) -> Result<()> {
     let what = if finding.kind == "ABC" { "abstract methods" } else { "methods" };
     let site = &finding.site;
     let implementation = &finding.implementation;

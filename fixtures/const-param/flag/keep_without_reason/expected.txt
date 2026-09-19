@@ -1,0 +1,4 @@
+const-param m.py:1 scale(factor)
+  calls: 1 prod, 0 test; default 2 never overridden
+  keep: missing reason
+  suggest: drop factor, use 2 inline

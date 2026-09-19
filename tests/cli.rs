@@ -115,3 +115,26 @@ fn a_subdirectory_run_indexes_the_whole_project() {
     dermestes(&root.join("app/core")).arg("--all").assert().code(0).stdout("");
     dermestes(root).arg("--all").assert().code(0).stdout("");
 }
+
+#[test]
+fn json_carries_const_param_fields() {
+    let tmp = TempDir::new().expect("temp dir");
+    std::fs::write(
+        tmp.path().join("m.py"),
+        "class T:\n    @classmethod\n    def done(cls, cost_usd=None):\n        return cost_usd\n\n\ndef close():\n    T.done()\n",
+    )
+    .expect("write");
+    let output = dermestes(tmp.path()).args(["--all", "--format", "json"]).output().expect("runs");
+    assert_eq!(output.status.code(), Some(1), "findings exit 1");
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).expect("valid json");
+    let finding = &json[0];
+    assert_eq!(finding["check"], "const-param", "check id");
+    assert_eq!(finding["path"], "m.py", "path");
+    assert_eq!(finding["line"], 3, "the def line, not the decorator");
+    assert_eq!(finding["name"], "T.done", "qualified name");
+    assert_eq!(finding["param"], "cost_usd", "param");
+    assert_eq!(finding["value"], "None", "value");
+    assert_eq!(finding["form"], "never-overridden", "form");
+    assert_eq!(finding["calls"], serde_json::json!({"prod": 1, "test": 0}), "calls");
+    assert_eq!(finding["suggest"], "drop cost_usd, use None inline", "suggest");
+}

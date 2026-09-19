@@ -1,0 +1,3 @@
+const-param extract.py:1 extract_content(debug)
+  calls: 1 prod, 1 test; default False never overridden
+  suggest: drop debug, use False inline

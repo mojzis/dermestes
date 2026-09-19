@@ -1,0 +1,3 @@
+const-param ui.py:1 render(border)
+  calls: 2 prod, 0 test; default True never overridden
+  suggest: drop border, use True inline

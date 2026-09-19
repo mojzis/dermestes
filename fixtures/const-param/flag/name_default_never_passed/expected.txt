@@ -1,0 +1,3 @@
+const-param cache.py:6 load(cache_dir)
+  calls: 1 prod, 0 test; default CACHE_DIR never overridden
+  suggest: drop cache_dir, use CACHE_DIR inline

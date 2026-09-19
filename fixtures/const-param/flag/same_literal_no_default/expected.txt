@@ -1,0 +1,3 @@
+const-param strips.py:1 compose(border)
+  calls: 2 prod, 0 test; always "cr"
+  suggest: drop border, use "cr" inline

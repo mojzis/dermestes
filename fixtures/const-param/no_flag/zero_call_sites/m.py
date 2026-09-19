@@ -1,0 +1,2 @@
+def unused(x, y=1):
+    return x + y

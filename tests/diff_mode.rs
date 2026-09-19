@@ -127,3 +127,29 @@ fn a_deletion_that_creates_a_finding_is_reported() {
     let (code, stdout) = dermestes(tmp.path(), &["--base", "HEAD~1"]);
     assert_eq!(code, Some(1), "also against a base ref: {stdout}");
 }
+
+/// Deleting the only call that varied a parameter makes it constant without
+/// touching the `def` line.
+#[test]
+fn deleting_the_varying_call_reports_the_parameter() {
+    let tmp = TempDir::new().expect("temp dir");
+    git(tmp.path(), &["init", "-q"]);
+    std::fs::write(
+        tmp.path().join("m.py"),
+        "def scale(x, factor=2):\n    return x * factor\n\n\ndef double(x):\n    return scale(x)\n",
+    )
+    .expect("write");
+    std::fs::write(
+        tmp.path().join("n.py"),
+        "from m import scale\n\n\ndef triple(x):\n    return scale(x, 3)\n",
+    )
+    .expect("write");
+    git(tmp.path(), &["add", "."]);
+    git(tmp.path(), &["commit", "-q", "-m", "two callers"]);
+    assert_eq!(dermestes(tmp.path(), &[]).0, Some(0), "varied: quiet");
+
+    std::fs::write(tmp.path().join("n.py"), "def triple(x):\n    return x * 3\n").expect("write");
+    let (code, stdout) = dermestes(tmp.path(), &[]);
+    assert_eq!(code, Some(1), "factor is now constant: {stdout}");
+    assert!(stdout.starts_with("const-param m.py:1 scale(factor)\n"), "reported: {stdout}");
+}

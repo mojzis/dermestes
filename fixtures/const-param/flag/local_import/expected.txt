@@ -1,0 +1,3 @@
+const-param tools.py:1 fmt(width)
+  calls: 1 prod, 0 test; default 80 never overridden
+  suggest: drop width, use 80 inline

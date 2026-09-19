@@ -1,0 +1,3 @@
+const-param net.py:5 fetch(timeout)
+  calls: 2 prod, 0 test; always TIMEOUT
+  suggest: drop timeout, use TIMEOUT inline

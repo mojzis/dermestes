@@ -56,7 +56,8 @@ Definitions:
   - the parameter omitted, so the default applies.
 
   Two arguments that merely read the same (`conn` at two sites) are never "the same
-  value". One call site is enough. `Class(...)` calls count as calls to `__init__`. An
+  value", and neither is a constant a test patches by string. One call site is
+  enough. `Class(...)` calls count as calls to `__init__`. An
   explicit literal equal to the default counts as not overriding it. A test call that
   passes a different value counts as variation, so the check stays silent.
 - **pass-through.** The body, excluding the docstring, is one `return f(...)`,
@@ -87,8 +88,10 @@ Always applied, in every check:
   check, not only caller counting: routes, fixtures, Typer commands, DI providers,
   registries and marimo cells otherwise produce pass-through and const-param noise. So is
   any function whose only call site is under `if __name__ == "__main__":`. Class
-  decorators (`@runtime_checkable`, `@dataclass`) do not exempt a class.
-  `ignore-decorators` can narrow or extend this.
+  decorators (`@runtime_checkable`, `@dataclass`) do not exempt a class, and
+  `@staticmethod`, `@classmethod` and `@abstractmethod` do not exempt a
+  function: they change how it binds, not who calls it. `ignore-decorators`
+  narrows this: a listed decorator no longer exempts.
 - Names in `__all__`, names re-exported from an `__init__.py`, and dunder methods are exempt.
 - A name is exempt when it appears as a whole string argument to `getattr`, `setattr`,
   `hasattr`, `monkeypatch.setattr`, `patch`, `patch.object`, or as a key in a registry
@@ -112,7 +115,9 @@ Always applied, in every check:
   different value counts as variation.
 - **Overrides are exempt.** Methods that override a base-class method, with the base
   resolved or not, are exempt, except overrides whose body only calls `super()` with the
-  same arguments. Those are pass-through candidates.
+  same arguments. Those are pass-through candidates. So are methods a subclass
+  overrides (`self.m()` may land on the override) and every method of a class
+  with a base outside the repo, since that base's method names are unknown.
 - Test code is never a target. Test usages are counted separately from production usages. A test usage vetoes a finding where the check says so, and is not printed otherwise.
 - If a base class or callee cannot be resolved to a definition inside the repo, the hierarchy or call is unknown, and nothing depending on it is flagged.
 - Inline suppression: `# dermestes: keep <reason>` on any line of the definition's header, from its first decorator to the line with the closing `:`. The reason is mandatory. (Amended: `ruff format` moves the comment to a wrapped header's `):` line.)

@@ -35,13 +35,6 @@ pub struct Finding {
     pub suggest: String,
 }
 
-impl Finding {
-    /// What identifies a finding across base and head: line numbers shift.
-    pub fn key(&self) -> (&'static str, &str, &str) {
-        (self.check, &self.site.path, &self.site.name)
-    }
-}
-
 /// Method sets per class, inherited through resolved bases.
 #[derive(Debug, Clone, Default)]
 struct Methods {
@@ -118,7 +111,11 @@ impl<'a> Check<'a> {
                         // Outside the repository: it cannot be a repository class
                         // of the same name, so it poisons only this class.
                         Target::External => fact.unknown_edge = true,
-                        Target::AbcMeta | Target::Module(_) | Target::Unknown => {
+                        Target::AbcMeta
+                        | Target::Module(_)
+                        | Target::Function(_)
+                        | Target::Constant(..)
+                        | Target::Unknown => {
                             fact.unknown_edge = true;
                             unresolved_names.extend(base.last().map(String::as_str));
                         }

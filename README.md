@@ -3,7 +3,7 @@
 Finds abstractions in Python code that have not earned their keep, and reports
 them as deletion candidates an agent can act on.
 
-> **Status:** phase 1. `one-impl` works; the other checks are not built yet.
+> **Status:** phase 2. `one-impl` and `const-param` work; phase 3 is not built yet.
 > See [`docs/plans/CONSTITUTION.md`](docs/plans/CONSTITUTION.md).
 
 ## Checks

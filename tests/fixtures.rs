@@ -8,15 +8,24 @@ use std::path::{Path, PathBuf};
 
 use assert_cmd::Command;
 
-fn cases(kind: &str) -> Vec<PathBuf> {
-    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("fixtures/one-impl").join(kind);
-    let mut cases: Vec<PathBuf> = std::fs::read_dir(&root)
+fn subdirs(dir: &Path) -> Vec<PathBuf> {
+    let mut dirs: Vec<PathBuf> = std::fs::read_dir(dir)
         .expect("fixture directory exists")
         .map(|entry| entry.expect("readable entry").path())
         .filter(|path| path.is_dir())
         .collect();
-    cases.sort();
-    assert!(!cases.is_empty(), "no fixtures under {}", root.display());
+    dirs.sort();
+    dirs
+}
+
+fn cases(kind: &str) -> Vec<PathBuf> {
+    let checks = subdirs(&Path::new(env!("CARGO_MANIFEST_DIR")).join("fixtures"));
+    let mut cases = Vec::new();
+    for check in checks {
+        let found = subdirs(&check.join(kind));
+        assert!(!found.is_empty(), "no fixtures under {}/{kind}", check.display());
+        cases.extend(found);
+    }
     cases
 }
 

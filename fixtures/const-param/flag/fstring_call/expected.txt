@@ -1,0 +1,3 @@
+const-param state.py:2 State.next_uuid(sub)
+  calls: 1 prod, 0 test; default 0 never overridden
+  suggest: drop sub, use 0 inline

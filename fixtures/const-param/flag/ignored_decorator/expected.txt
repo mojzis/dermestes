@@ -1,0 +1,3 @@
+const-param m.py:5 load(strict)
+  calls: 1 prod, 0 test; default True never overridden
+  suggest: drop strict, use True inline

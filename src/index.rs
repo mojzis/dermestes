@@ -12,6 +12,7 @@ use anyhow::{Context, Result};
 use rayon::prelude::*;
 use tree_sitter::Node;
 
+use crate::calls::{Call, Callee, FnId, Function, Scope, TopName};
 use crate::config::{matches_any, Config};
 use crate::discovery::SourcePath;
 
@@ -58,6 +59,15 @@ pub struct Class {
     pub keep: Keep,
 }
 
+/// What a module-level name refers to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Symbol {
+    Class(ClassId),
+    Function(FnId),
+    /// Assigned a literal exactly once: a module constant.
+    Constant,
+}
+
 /// One indexed file.
 #[derive(Debug, Clone, Default)]
 pub struct FileInfo {
@@ -68,8 +78,11 @@ pub struct FileInfo {
     pub is_test: bool,
     pub bindings: HashMap<String, Binding>,
     pub has_star_import: bool,
-    /// Module-level class names; `None` when a name is defined twice.
-    pub top_classes: HashMap<String, Option<ClassId>>,
+    /// Module-level definitions; `None` when a name is bound more than once,
+    /// or by anything but a class, a function or a literal.
+    pub top: HashMap<String, Option<Symbol>>,
+    /// Function and class bodies; `scopes[0]` is the module and stays empty.
+    pub scopes: Vec<Scope>,
 }
 
 /// The whole repository.
@@ -84,6 +97,11 @@ pub struct Index {
     pub strings: HashSet<String>,
     /// `X` for every `X.register` seen: ABC virtual subclass registration.
     pub registered: HashSet<String>,
+    pub functions: Vec<Function>,
+    pub calls: Vec<Call>,
+    /// Every name used as a value rather than called: `f` in `register(f)`,
+    /// `b` in `a.b`. A function of that name has call sites we cannot see.
+    pub refs: HashSet<String>,
 }
 
 /// Per-file extraction output before class ids are assigned.
@@ -94,6 +112,10 @@ struct Extracted {
     all_names: Vec<String>,
     strings: Vec<String>,
     registered: Vec<String>,
+    functions: Vec<Function>,
+    calls: Vec<Call>,
+    refs: Vec<String>,
+    top_names: Vec<(String, TopName)>,
 }
 
 /// Every file parsed, before the index is assembled. Diff mode derives the
@@ -173,25 +195,56 @@ impl Index {
         Parsed::new(files, projects, config).into_index()
     }
 
-    fn add(&mut self, mut extracted: Extracted) {
+    /// Append one file, shifting its file-local class and function positions
+    /// to index-wide ids.
+    fn add(&mut self, extracted: Extracted) {
         let file = self.files.len();
+        let (class_base, fn_base) = (self.classes.len(), self.functions.len());
+        let mut info = extracted.info;
         for mut class in extracted.classes {
             class.file = file;
-            let id = self.classes.len();
-            if class.top_level {
-                extracted
-                    .info
-                    .top_classes
-                    .entry(class.name.clone())
-                    .and_modify(|slot| *slot = None)
-                    .or_insert(Some(id));
-            }
             self.classes.push(class);
         }
-        self.files.push(extracted.info);
+        for mut function in extracted.functions {
+            function.file = file;
+            function.class = function.class.map(|class| class + class_base);
+            self.functions.push(function);
+        }
+        for mut call in extracted.calls {
+            call.file = file;
+            if let Callee::SelfMethod(class, _) | Callee::Super(class, _) = &mut call.callee {
+                *class += class_base;
+            }
+            self.calls.push(call);
+        }
+        for scope in &mut info.scopes {
+            scope.class = scope.class.map(|class| class + class_base);
+            if let Some((class, _)) = &mut scope.method {
+                *class += class_base;
+            }
+            for def in scope.defs.values_mut().flatten() {
+                *def += fn_base;
+            }
+        }
+        for (name, top) in extracted.top_names {
+            let symbol = match top {
+                TopName::Class(class) => Some(Symbol::Class(class + class_base)),
+                TopName::Function(function) => Some(Symbol::Function(function + fn_base)),
+                TopName::Constant => Some(Symbol::Constant),
+                TopName::Other => None,
+            };
+            info.top.entry(name).and_modify(|slot| *slot = None).or_insert(symbol);
+        }
+        for name in info.bindings.keys() {
+            if let Some(slot) = info.top.get_mut(name) {
+                *slot = None;
+            }
+        }
+        self.files.push(info);
         self.all_names.extend(extracted.all_names);
         self.strings.extend(extracted.strings);
         self.registered.extend(extracted.registered);
+        self.refs.extend(extracted.refs);
     }
 }
 
@@ -266,12 +319,19 @@ fn extract(relative: &str, source: &str, roots: &[String], config: &Config) -> R
             modules,
             is_init,
             is_test: matches_any(relative, &config.test_paths),
+            scopes: vec![Scope::default()],
             ..FileInfo::default()
         },
         classes: Vec::new(),
         all_names: Vec::new(),
         strings: Vec::new(),
         registered: Vec::new(),
+        functions: Vec::new(),
+        calls: Vec::new(),
+        refs: Vec::new(),
+        top_names: Vec::new(),
+        scope: 0,
+        under_main: false,
     };
     walker.visit(root, "", true);
     Ok(Extracted {
@@ -280,42 +340,93 @@ fn extract(relative: &str, source: &str, roots: &[String], config: &Config) -> R
         all_names: walker.all_names,
         strings: walker.strings,
         registered: walker.registered,
+        functions: walker.functions,
+        calls: walker.calls,
+        refs: walker.refs,
+        top_names: walker.top_names,
     })
 }
 
-struct Walker<'s> {
+/// One file's walk. Positions in `classes` and `functions` are file-local
+/// until `Index::add` shifts them.
+pub(crate) struct Walker<'s> {
     source: &'s str,
     lines: Vec<&'s str>,
     /// The package relative imports start from; `None` if the file has no module name.
     package: Option<String>,
-    info: FileInfo,
+    pub(crate) info: FileInfo,
     classes: Vec<Class>,
     all_names: Vec<String>,
     strings: Vec<String>,
-    registered: Vec<String>,
+    pub(crate) registered: Vec<String>,
+    pub(crate) functions: Vec<Function>,
+    pub(crate) calls: Vec<Call>,
+    pub(crate) refs: Vec<String>,
+    pub(crate) top_names: Vec<(String, TopName)>,
+    /// The scope being walked, in `info.scopes`.
+    pub(crate) scope: usize,
+    pub(crate) under_main: bool,
 }
 
 impl<'s> Walker<'s> {
-    fn text(&self, node: Node<'_>) -> &'s str {
+    pub(crate) fn text(&self, node: Node<'_>) -> &'s str {
         &self.source[node.byte_range()]
     }
 
     /// Visit `node`; `prefix` is the enclosing qualname and `top` whether we
     /// are still in module scope (not inside a `def` or `class`).
-    fn visit(&mut self, node: Node<'_>, prefix: &str, top: bool) {
+    pub(crate) fn visit(&mut self, node: Node<'_>, prefix: &str, top: bool) {
         match node.kind() {
-            "import_statement" | "import_from_statement" if top => self.import(node),
+            "import_statement" | "import_from_statement" => return self.import(node),
             "class_definition" => return self.class(node, prefix, top),
-            "function_definition" => {
-                let name = node.child_by_field_name("name").map_or("", |n| self.text(n));
-                if let Some(body) = node.child_by_field_name("body") {
-                    self.visit(body, &join(prefix, name), false);
+            "function_definition" => return self.function(node, prefix, top),
+            "assignment" | "augmented_assignment" => {
+                if top {
+                    self.dunder_all(node);
+                }
+                return self.assignment(node, prefix, top);
+            }
+            "for_statement" | "for_in_clause" => {
+                if let Some(left) = node.child_by_field_name("left") {
+                    self.bind_targets(left, prefix, top, false);
+                }
+                let mut cursor = node.walk();
+                for child in node.named_children(&mut cursor) {
+                    if Some(child) != node.child_by_field_name("left") {
+                        self.visit(child, prefix, top);
+                    }
                 }
                 return;
             }
-            "assignment" | "augmented_assignment" if top => self.dunder_all(node),
-            "string" => return,
-            "call" => self.lookup_call(node),
+            // Only an f-string's interpolations are code.
+            "string" => {
+                let mut cursor = node.walk();
+                for child in node.named_children(&mut cursor) {
+                    if child.kind() == "interpolation" {
+                        self.visit(child, prefix, top);
+                    }
+                }
+                return;
+            }
+            "type" | "global_statement" | "nonlocal_statement" => return,
+            "call" => return self.call(node, prefix, top),
+            "attribute" => return self.attribute(node, prefix, top, false),
+            "identifier" => return self.refs.push(self.text(node).to_owned()),
+            "keyword_argument" => {
+                if let Some(value) = node.child_by_field_name("value") {
+                    self.visit(value, prefix, top);
+                }
+                return;
+            }
+            "if_statement" if top && self.is_main_guard(node) => {
+                self.under_main = true;
+                let mut cursor = node.walk();
+                for child in node.named_children(&mut cursor) {
+                    self.visit(child, prefix, top);
+                }
+                self.under_main = false;
+                return;
+            }
             // A registry entry, `{"csv": CsvExporter}`: the key names a symbol
             // looked up at runtime. `{"done": 3}` is data, not a lookup.
             "pair" => {
@@ -324,13 +435,6 @@ impl<'s> Walker<'s> {
                 });
                 let key = node.child_by_field_name("key").and_then(|key| self.string(key));
                 self.strings.extend(key.filter(|key| is_reference && is_identifier(key)));
-            }
-            "attribute" => {
-                let attr = node.child_by_field_name("attribute").map(|n| self.text(n));
-                let object = node.child_by_field_name("object").and_then(|n| dotted(self, n));
-                if let (Some("register"), Some(object)) = (attr, object) {
-                    self.registered.extend(object.last().cloned());
-                }
             }
             _ => {}
         }
@@ -403,8 +507,13 @@ impl<'s> Walker<'s> {
         })
     }
 
+    /// An import binds at module level, or locally inside a function.
     fn bind(&mut self, local: &str, binding: Binding) {
-        self.info.bindings.insert(local.to_owned(), binding);
+        if self.scope == 0 {
+            self.info.bindings.insert(local.to_owned(), binding);
+        } else {
+            self.info.scopes[self.scope].bindings.insert(local.to_owned(), Some(binding));
+        }
     }
 
     fn class(&mut self, node: Node<'_>, prefix: &str, top: bool) {
@@ -458,6 +567,12 @@ impl<'s> Walker<'s> {
         }
 
         let line = node.start_position().row;
+        let id = self.classes.len();
+        if top {
+            self.top_names.push((name.to_owned(), TopName::Class(id)));
+        } else {
+            self.info.scopes[self.scope].bindings.insert(name.to_owned(), None);
+        }
         self.classes.push(Class {
             file: 0,
             name: name.to_owned(),
@@ -471,14 +586,15 @@ impl<'s> Walker<'s> {
             keep: self.header_keep(node),
         });
         if let Some(body) = node.child_by_field_name("body") {
-            self.visit(body, &qualname, false);
+            let scope = Scope { parent: self.scope, class: Some(id), ..Scope::default() };
+            self.in_scope(scope, |walker| walker.visit(body, &qualname, false));
         }
     }
 
     /// The `keep` marker anywhere in a definition's header: its decorators
     /// through the line with the closing `:`, which is where `ruff format`
     /// moves a comment when it wraps the header.
-    fn header_keep(&self, node: Node<'_>) -> Keep {
+    pub(crate) fn header_keep(&self, node: Node<'_>) -> Keep {
         let start = node
             .parent()
             .filter(|parent| parent.kind() == "decorated_definition")
@@ -531,7 +647,7 @@ impl<'s> Walker<'s> {
 
     /// `getattr(m, "C")`, `patch("pkg.mod.C")`, `patch.object(m, "C")`,
     /// `monkeypatch.setattr("pkg.mod.C", ...)`: record `C`.
-    fn lookup_call(&mut self, node: Node<'_>) {
+    pub(crate) fn lookup_call(&mut self, node: Node<'_>) {
         let function = node.child_by_field_name("function").and_then(|n| dotted(self, n));
         let is_lookup = function.is_some_and(|parts| match &parts[..] {
             [.., patch, object] if patch == "patch" && object == "object" => true,
@@ -553,7 +669,7 @@ impl<'s> Walker<'s> {
 
     /// The content of a plain string literal; `None` for anything else,
     /// f-strings with interpolation included.
-    fn string(&self, node: Node<'_>) -> Option<String> {
+    pub(crate) fn string(&self, node: Node<'_>) -> Option<String> {
         if node.kind() != "string" {
             return None;
         }
@@ -571,7 +687,7 @@ impl<'s> Walker<'s> {
 }
 
 /// A base expression as dotted parts: `a.b.C` or `C[T]`. Anything else is `None`.
-fn dotted(walker: &Walker<'_>, node: Node<'_>) -> Option<Vec<String>> {
+pub(crate) fn dotted(walker: &Walker<'_>, node: Node<'_>) -> Option<Vec<String>> {
     match node.kind() {
         "identifier" => Some(vec![walker.text(node).to_owned()]),
         "attribute" => {
@@ -584,7 +700,7 @@ fn dotted(walker: &Walker<'_>, node: Node<'_>) -> Option<Vec<String>> {
     }
 }
 
-fn join(prefix: &str, name: &str) -> String {
+pub(crate) fn join(prefix: &str, name: &str) -> String {
     if prefix.is_empty() {
         name.to_owned()
     } else {
