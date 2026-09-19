@@ -38,7 +38,8 @@ module constant instead of leaving the default.
   variable (`tr = T(); tr.done()`, `self.client.get()`) is not followed.
 - `const-param` is silent for functions passed or referenced as values,
   decorated ones, overrides and overridden methods, methods of a class with a
-  third-party base, and any function called with `*args`/`**kwargs`.
+  third-party base, any function called with `*args`/`**kwargs`, and any
+  function only tests call (dead code, a different question).
 - A variable is never "the same value", even when every caller passes its
   own parameter straight through; nor are enum members or class attributes.
 - Files with syntax errors are skipped, so what they define or call is not

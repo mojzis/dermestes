@@ -351,6 +351,10 @@ impl<'a> Check<'a> {
         let (test, prod): (Vec<&Site>, Vec<&Site>) = sites
             .iter()
             .partition(|site| self.index.files[self.index.calls[site.call].file].is_test);
+        // Called only from tests: dead code, not a constant parameter.
+        if prod.is_empty() {
+            return Vec::new();
+        }
         let calls = Calls { prod: prod.len(), test: test.len() };
         let receiver = matches!(function.kind, FnKind::Method | FnKind::ClassMethod);
 
