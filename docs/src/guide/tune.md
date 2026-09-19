@@ -31,7 +31,8 @@ counts by its last part), or used as a string key in a registry dict
 `const-param` also exempts decorated functions (unless `ignore-decorators`
 lists every decorator), functions used as a value anywhere (`register(f)`,
 `x.f` without a call), overrides, abstract and Protocol methods, functions
-called only under `if __name__ == "__main__":`, and constants a test patches.
+called only under `if __name__ == "__main__":`, constants a test patches, and
+every function of a module or class `getattr` reads a computed name from.
 
 A library's public functions are called from outside the repository. List
 their modules in `public` rather than keeping each one.

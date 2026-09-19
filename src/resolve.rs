@@ -66,6 +66,11 @@ impl<'a> Resolver<'a> {
         rest.iter().fold(self.local(file, head), |target, part| self.member(target, part))
     }
 
+    /// The file that is `module`, when exactly one is.
+    pub fn module_file(&self, module: &str) -> Option<usize> {
+        self.modules.get(module).copied().flatten()
+    }
+
     /// `target.name`, where only a module's attributes are followed.
     pub fn member(&self, target: Target, name: &str) -> Target {
         match target {

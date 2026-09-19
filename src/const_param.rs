@@ -86,6 +86,8 @@ struct Check<'a> {
     /// Methods some subclass redefines: `self.m()` may land on the override.
     overridden: HashSet<FnId>,
     reexported: HashSet<FnId>,
+    /// Functions of a module or class `getattr` reads a computed name from.
+    dynamic: HashSet<FnId>,
     sites: Vec<Vec<Site>>,
     /// Calls we could not resolve, by the name they call.
     possible: HashMap<&'a str, Vec<usize>>,
@@ -141,10 +143,12 @@ impl<'a> Check<'a> {
             methods,
             overridden: HashSet::new(),
             reexported,
+            dynamic: HashSet::new(),
             sites: vec![Vec::new(); index.functions.len()],
             possible: HashMap::new(),
         };
         check.overridden = check.find_overridden();
+        check.dynamic = check.find_dynamic();
         for (id, call) in index.calls.iter().enumerate() {
             match check.resolve_call(call) {
                 Resolved::Function(function, skip) => {
@@ -168,6 +172,28 @@ impl<'a> Check<'a> {
             }
         }
         overridden
+    }
+
+    fn find_dynamic(&self) -> HashSet<FnId> {
+        let mut files = HashSet::new();
+        let mut classes = HashSet::new();
+        for (file, scope, parts) in &self.index.dynamic {
+            match self.resolve_parts(*file, *scope, parts) {
+                Target::Module(module) => files.extend(self.resolver.module_file(&module)),
+                Target::Class(class) => {
+                    classes.insert(class);
+                }
+                _ => {}
+            }
+        }
+        let functions = self.index.functions.iter().enumerate();
+        functions
+            .filter(|(_, f)| match f.class {
+                Some(class) => classes.contains(&class),
+                None => files.contains(&f.file),
+            })
+            .map(|(id, _)| id)
+            .collect()
     }
 
     /// Every resolved class above `class`.
@@ -301,6 +327,7 @@ impl<'a> Check<'a> {
                 }))
             || self.reexported.contains(&id)
             || self.overridden.contains(&id)
+            || self.dynamic.contains(&id)
             || matches_any(&file.relative, &config.public)
             || function.class.is_some_and(|class| {
                 self.protocols.contains(&class)

@@ -310,6 +310,16 @@ impl Walker<'_> {
                 self.visit(argument, prefix, top);
             }
         }
+        // `getattr(mod, "is_" + name)`: any function of `mod` may be called.
+        if let (Some(Callee::Name(name)), [Arg::Positional(object), Arg::Positional(attr), ..]) =
+            (&callee, &args[..])
+        {
+            if let (true, ValueKind::Name(parts), false) =
+                (name == "getattr", &object.kind, matches!(attr.kind, ValueKind::Literal(_)))
+            {
+                self.dynamic.push((self.scope, parts.clone()));
+            }
+        }
         if let Some(callee) = callee {
             self.calls.push(Call {
                 file: 0,

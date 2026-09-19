@@ -102,6 +102,9 @@ pub struct Index {
     /// Every name used as a value rather than called: `f` in `register(f)`,
     /// `b` in `a.b`. A function of that name has call sites we cannot see.
     pub refs: HashSet<String>,
+    /// `getattr(x, <computed name>)`: file, scope and `x`'s dotted parts.
+    /// Every function of what `x` resolves to has invisible call sites.
+    pub dynamic: Vec<(usize, usize, Vec<String>)>,
 }
 
 /// Per-file extraction output before class ids are assigned.
@@ -116,6 +119,7 @@ struct Extracted {
     calls: Vec<Call>,
     refs: Vec<String>,
     top_names: Vec<(String, TopName)>,
+    dynamic: Vec<(usize, Vec<String>)>,
 }
 
 /// Every file parsed, before the index is assembled. Diff mode derives the
@@ -245,6 +249,8 @@ impl Index {
         self.strings.extend(extracted.strings);
         self.registered.extend(extracted.registered);
         self.refs.extend(extracted.refs);
+        self.dynamic
+            .extend(extracted.dynamic.into_iter().map(|(scope, parts)| (file, scope, parts)));
     }
 }
 
@@ -330,6 +336,7 @@ fn extract(relative: &str, source: &str, roots: &[String], config: &Config) -> R
         calls: Vec::new(),
         refs: Vec::new(),
         top_names: Vec::new(),
+        dynamic: Vec::new(),
         scope: 0,
         under_main: false,
     };
@@ -344,6 +351,7 @@ fn extract(relative: &str, source: &str, roots: &[String], config: &Config) -> R
         calls: walker.calls,
         refs: walker.refs,
         top_names: walker.top_names,
+        dynamic: walker.dynamic,
     })
 }
 
@@ -363,6 +371,8 @@ pub(crate) struct Walker<'s> {
     pub(crate) calls: Vec<Call>,
     pub(crate) refs: Vec<String>,
     pub(crate) top_names: Vec<(String, TopName)>,
+    /// Objects `getattr` reads a computed name from, with the scope of the call.
+    pub(crate) dynamic: Vec<(usize, Vec<String>)>,
     /// The scope being walked, in `info.scopes`.
     pub(crate) scope: usize,
     pub(crate) under_main: bool,
