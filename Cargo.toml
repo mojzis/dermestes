@@ -18,7 +18,7 @@ anyhow = "1.0"
 # Reads `[tool.dermestes]` from pyproject.toml.
 toml = "1.1.4"
 # Python syntax trees; the parser the constitution names, same as biston.
-tree-sitter = "0.26"
+tree-sitter = "0.27"
 # The Python grammar for tree-sitter.
 tree-sitter-python = "0.25"
 # gitignore-aware directory walk, copied from biston's discovery.
