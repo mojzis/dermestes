@@ -100,6 +100,9 @@ pub struct Index {
     pub strings: HashSet<String>,
     /// `X` for every `X.register` seen: ABC virtual subclass registration.
     pub registered: HashSet<String>,
+    /// Private names (`_load`) spelled as a whole string literal in test code:
+    /// `patch(f"pkg.mod.{name}")` with the name as a `parametrize` value.
+    pub test_strings: HashSet<String>,
     pub functions: Vec<Function>,
     pub calls: Vec<Call>,
     /// Every name used as a value rather than called: `f` in `register(f)`,
@@ -118,6 +121,7 @@ struct Extracted {
     all_names: Vec<String>,
     strings: Vec<String>,
     registered: Vec<String>,
+    test_strings: Vec<String>,
     functions: Vec<Function>,
     calls: Vec<Call>,
     refs: Vec<String>,
@@ -254,6 +258,7 @@ impl Index {
         self.all_names.extend(extracted.all_names);
         self.strings.extend(extracted.strings);
         self.registered.extend(extracted.registered);
+        self.test_strings.extend(extracted.test_strings);
         self.refs.extend(extracted.refs);
         self.dynamic
             .extend(extracted.dynamic.into_iter().map(|(scope, parts)| (file, scope, parts)));
@@ -352,6 +357,7 @@ fn extract(
         all_names: Vec::new(),
         strings: Vec::new(),
         registered: Vec::new(),
+        test_strings: Vec::new(),
         functions: Vec::new(),
         calls: Vec::new(),
         refs: Vec::new(),
@@ -368,6 +374,7 @@ fn extract(
         all_names: walker.all_names,
         strings: walker.strings,
         registered: walker.registered,
+        test_strings: walker.test_strings,
         functions: walker.functions,
         calls: walker.calls,
         refs: walker.refs,
@@ -388,6 +395,7 @@ pub(crate) struct Walker<'s> {
     all_names: Vec<String>,
     strings: Vec<String>,
     pub(crate) registered: Vec<String>,
+    pub(crate) test_strings: Vec<String>,
     pub(crate) functions: Vec<Function>,
     pub(crate) calls: Vec<Call>,
     pub(crate) refs: Vec<String>,
@@ -434,6 +442,12 @@ impl<'s> Walker<'s> {
             }
             // Only an f-string's interpolations are code.
             "string" => {
+                if self.info.is_test {
+                    let name = self.string(node).filter(|name| {
+                        name.starts_with('_') && !name.starts_with("__") && is_identifier(name)
+                    });
+                    self.test_strings.extend(name);
+                }
                 let mut cursor = node.walk();
                 for child in node.named_children(&mut cursor) {
                     if child.kind() == "interpolation" {

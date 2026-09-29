@@ -41,8 +41,9 @@ methods, functions called only under `if __name__ == "__main__":`, and every
 function of a module or class `getattr` reads a computed name from.
 `const-param` also exempts constants a test patches; `pass-through` also
 exempts functions named in `[project.scripts]` or `[project.entry-points]`
-of any `pyproject.toml`, and anything a test calls. Suppress a deliberate
-wrapper with `keep`, or `disable = ["pass-through"]`.
+of any `pyproject.toml`, anything a test calls, and any private name a test
+spells as a whole string (`"_load"`). Suppress a deliberate wrapper with
+`keep`, or `disable = ["pass-through"]`.
 
 A library's public functions are called from outside the repository. List
 their modules in `public` rather than keeping each one.

@@ -78,7 +78,8 @@ impl Callers<'_> {
             let file = &self.index.files[self.index.calls[site.call].file];
             file.is_test || file.evidence_only
         });
-        if !test.is_empty() || prod.is_empty() || self.possibly_called(function) {
+        let patched = self.index.test_strings.contains(&function.name);
+        if !test.is_empty() || patched || prod.is_empty() || self.possibly_called(function) {
             return None;
         }
         let single_use = prod.len() == 1 && single_use(function);
