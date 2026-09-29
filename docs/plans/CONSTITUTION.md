@@ -67,7 +67,8 @@ Definitions:
     - `f(...)` is the outermost node: no `bool(...)`, method chain or subscript around it.
 
     Any number of callers. Bodies that are SQL, templates or dict literals are not
-    delegation.
+    delegation. A public wrapper of a private target is not reported: it is the
+    private function's public name.
   - **single-use** (was `one-caller`). All of these hold:
     - the name is private (`_x`, not a dunder);
     - it is defined at module or class level, not nested in a function;
@@ -121,7 +122,9 @@ Always applied, in every check:
   calls to a Typer command called `update`; `jobs.get` got 154 calls, all of them
   `dict.get`.
 - **Test callers veto.** Pass-through, in both forms, stays silent when any test calls or
-  patches the symbol, because that makes it a seam. For const-param, a test passing a
+  patches the symbol, because that makes it a seam. In test code, a string literal equal
+  to the bare name of a private repository function or method counts as a test
+  reference to it (`patch(f"pkg.mod.{name}")` with the name as a `parametrize` value). For const-param, a test passing a
   different value counts as variation.
 - **Overrides are exempt.** Methods that override a base-class method, with the base
   resolved or not, are exempt, except overrides whose body only calls `super()` with the
@@ -146,7 +149,7 @@ Exit codes: `0` no findings, `1` findings, `2` usage or internal error.
 
 Config lives in `[tool.dermestes]` in `pyproject.toml`. Initial keys, nothing else until a real need appears: `exclude`, `test-paths`, `ignore-decorators`, `public` (globs treated as public API and exempt), `disable` (check ids).
 
-`exclude` defaults to `examples/**`, `docs/**` and `**/test/resources/**`: the explicit parameter is what an example teaches (11 % of findings on feast, 21 % on dlt). An explicit `exclude` replaces the defaults.
+`examples/**`, `docs/**` and `**/test/resources/**` are indexed but never reported: the explicit parameter is what an example teaches (11 % of findings on feast, 21 % on dlt), yet their calls and value references are still evidence. An explicit `exclude` means "never indexed", for vendored or broken code; it does not turn these defaults off.
 
 Text output, one block per finding, sorted by path then line:
 
@@ -154,6 +157,16 @@ Text output, one block per finding, sorted by path then line:
 one-impl src/pay/gateway.py:12 PaymentGateway (ABC, 3 abstract methods)
   impl: src/pay/stripe.py:8 StripeGateway
   suggest: inline into StripeGateway, delete PaymentGateway
+```
+
+A function's `const-param` findings share one block, one line per parameter:
+
+```
+const-param bookmaker/images.py:62 compose_strips
+  calls: 3 prod, 0 test
+  gap: default 0 never overridden
+  margin: default 0 never overridden
+  suggest: drop gap, margin, use 0 inline
 ```
 
 ## Engineering rules
@@ -187,3 +200,21 @@ This document changes only in a commit that states the reason. If practice and c
   ≤2-line, non-`bool` bodies. The check table has three checks.
 - **Default excludes** (`examples/`, `docs/`, `**/test/resources/**`) and the
   **generated-file rule**, from the phase-2 evaluation on feast, dlt and litestar.
+
+### Amendment 3 (2026-09-29)
+
+From the phase-3 evaluation (`~/git/pp/dermestes/history/2026-09-28-phase3-eval.md`).
+
+- **`exclude` has two meanings.** The default excludes (`examples/`, `docs/`,
+  `**/test/resources/**`) are indexed, and their calls and value references count as
+  evidence, but they produce no findings. An explicit `exclude` stays "never indexed".
+  Reason: dlt `rest_api_source` got 6 `const-param` findings once a value reference in
+  `docs/education` stopped counting; each would drop a parameter from dlt's public API.
+- **Test references include string literals** equal to a private repository function's
+  name. Reason: dlt `_load_raw_text` is patched through
+  `patch(f"dlt.helpers.marimo.utils.{fn}")` with the name as a `parametrize` value.
+- **Forward `pass-through` is silent for a public wrapper of a private target.** Reason:
+  introspect `refresh_status` and `session_cost_subquery_filtered` are the public names
+  of private functions.
+- **A function's `const-param` findings are grouped** into one text block. Reason: 108
+  corpus findings are 85 functions; feast's 78 are 46.
