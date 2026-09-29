@@ -1,4 +1,4 @@
 pass-through m.py:5 search_mcp
   form: forward → m.py:1 search; calls: 1 prod, 0 test
   keep: missing reason
-  suggest: call search directly at m.py:10, delete search_mcp
+  suggest: call search(query, "mcp") directly at m.py:10, delete search_mcp

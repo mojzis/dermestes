@@ -1,3 +1,3 @@
 pass-through net.py:5 fetch_page
   form: forward → net.py:1 fetch; calls: 1 prod, 0 test
-  suggest: call fetch directly at net.py:11, delete fetch_page
+  suggest: call fetch(url, 3) directly at net.py:11, delete fetch_page

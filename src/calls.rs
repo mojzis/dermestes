@@ -63,6 +63,7 @@ pub struct Function {
     /// name): a framework may call it where we cannot see.
     pub decorators: Vec<String>,
     pub is_abstract: bool,
+    pub is_async: bool,
     pub keep: Keep,
     pub body: Body,
 }
@@ -220,6 +221,7 @@ impl Walker<'_> {
             params: params.clone(),
             decorators,
             is_abstract,
+            is_async: node.child(0).is_some_and(|first| first.kind() == "async"),
             keep: self.header_keep(node),
             body,
         });

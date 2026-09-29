@@ -1,0 +1,3 @@
+pass-through pages.py:5 _render_page
+  form: forward → pages.py:1 render; calls: 1 prod, 0 test
+  suggest: call render(template, False) directly at pages.py:10 (drop the await), delete _render_page

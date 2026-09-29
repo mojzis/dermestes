@@ -30,9 +30,9 @@ function with its own parameters, `self` attributes or short literals; and
 2. If not, apply the `suggest:` line, then run the tests.
    - `const-param`: remove the parameter, use the value in the body, delete
      every branch the value makes dead, then update the calls.
-   - `pass-through`: replace each listed call with the target (forward) or the
-     body (single-use), filling in any literal the wrapper bound, then delete
-     it. A `super()`-only override is just deleted.
+   - `pass-through`: replace each listed call with the call the suggestion
+     writes, arguments the wrapper bound included (forward), or with the body
+     (single-use), then delete it. A `super()`-only override is just deleted.
 3. If it is deliberate, suppress it with a reason on any line of its header
    (a decorator through the closing `:`): `# dermestes: keep <reason>`.
    Without a reason it still reports, with a `keep: missing reason` line.

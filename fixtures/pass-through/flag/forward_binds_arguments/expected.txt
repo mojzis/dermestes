@@ -1,0 +1,3 @@
+pass-through writer.py:10 Writer._emit
+  form: forward → writer.py:5 Writer._write; calls: 1 prod, 0 test
+  suggest: call _write(self._sink, data, flush=True) directly at writer.py:14, delete Writer._emit

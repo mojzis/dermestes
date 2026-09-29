@@ -106,9 +106,10 @@ impl Callers<'_> {
                 format!("delete {}, {} is inherited", function.qualname, target.qualname)
             }
             (Some(target), false) => format!(
-                "call {} directly at {}, delete {}",
-                target.name,
+                "call {} directly at {}{}, delete {}",
+                self.forward_call(function, target),
                 listed(&sites),
+                if function.is_async && !target.is_async { " (drop the await)" } else { "" },
                 function.qualname
             ),
             (None, _) => format!("inline at {}, delete {}", listed(&sites), function.qualname),
@@ -160,12 +161,28 @@ impl Callers<'_> {
             return None;
         }
         let same_name = matches!(&call.callee, Callee::Super(_, name) if *name == function.name);
-        let same_args = call.args.len() == params.len()
-            && call.args.iter().enumerate().all(|(position, arg)| match arg {
-                Arg::Positional(value) => names(value, params[position]),
-                Arg::Keyword(key, value) => names(value, key) && params.contains(&key.as_str()),
-            });
-        Some((target, same_name && same_args))
+        Some((target, same_name && passes_through(&call.args, &params)))
+    }
+
+    /// `target`, or `target(<arguments>)` when the wrapper does more than
+    /// pass its own parameters through: callers must carry what it bound.
+    fn forward_call(&self, function: &Function, target: &Function) -> String {
+        let Some(forward) = function.body.forward else { return target.name.clone() };
+        let args = &self.index.calls[forward].args;
+        let skip = usize::from(matches!(function.kind, FnKind::Method | FnKind::ClassMethod));
+        let params: Vec<&str> =
+            function.params.iter().skip(skip).map(|param| param.name.as_str()).collect();
+        if passes_through(args, &params) {
+            return target.name.clone();
+        }
+        let args: Vec<String> = args
+            .iter()
+            .map(|arg| match arg {
+                Arg::Positional(value) => value.text.clone(),
+                Arg::Keyword(key, value) => format!("{key}={}", value.text),
+            })
+            .collect();
+        format!("{}({})", target.name, args.join(", "))
     }
 
     /// The forwarding call names its target bare, and a function around some
@@ -231,6 +248,15 @@ fn forwardable(value: &Value, params: &[&str], receiver: Option<&str>) -> bool {
         ValueKind::Literal(_) => value.text.len() <= SHORT_LITERAL && !value.text.contains('\n'),
         ValueKind::Other => false,
     }
+}
+
+/// Every parameter, once each, by position or as `name=name`, and nothing else.
+fn passes_through(args: &[Arg], params: &[&str]) -> bool {
+    args.len() == params.len()
+        && args.iter().enumerate().all(|(position, arg)| match arg {
+            Arg::Positional(value) => names(value, params[position]),
+            Arg::Keyword(key, value) => names(value, key) && params.contains(&key.as_str()),
+        })
 }
 
 fn names(value: &Value, param: &str) -> bool {

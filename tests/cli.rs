@@ -171,5 +171,5 @@ fn json_carries_pass_through_fields() {
     assert_eq!(finding["target"], serde_json::json!({"name": "f", "at": "m.py:1"}), "target");
     assert_eq!(finding["calls"], serde_json::json!({"prod": 1, "test": 0}), "calls");
     assert_eq!(finding["sites"], serde_json::json!(["m.py:11"]), "prod sites");
-    assert_eq!(finding["suggest"], "call f directly at m.py:11, delete g", "suggest");
+    assert_eq!(finding["suggest"], "call f(a, 1) directly at m.py:11, delete g", "suggest");
 }
