@@ -286,6 +286,7 @@ impl<'a> Callers<'a> {
         let name = function.name.as_str();
         let is_dunder = name.starts_with("__") && name.ends_with("__");
         file.is_test
+            || file.evidence_only
             || function.keep == Keep::WithReason
             || function.decorators.iter().any(|decorator| !ignored(decorator, config))
             || function.is_abstract

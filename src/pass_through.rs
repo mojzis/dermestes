@@ -73,9 +73,11 @@ impl Callers<'_> {
         if sites.iter().all(|site| self.index.calls[site.call].under_main) {
             return None;
         }
-        let (test, prod): (Vec<&Site>, Vec<&Site>) = sites
-            .iter()
-            .partition(|site| self.index.files[self.index.calls[site.call].file].is_test);
+        // An example calling it makes it documented API, like a test makes a seam.
+        let (test, prod): (Vec<&Site>, Vec<&Site>) = sites.iter().partition(|site| {
+            let file = &self.index.files[self.index.calls[site.call].file];
+            file.is_test || file.evidence_only
+        });
         if !test.is_empty() || prod.is_empty() || self.possibly_called(function) {
             return None;
         }

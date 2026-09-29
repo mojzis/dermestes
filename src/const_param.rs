@@ -5,7 +5,7 @@ use std::collections::HashMap;
 
 use serde::Serialize;
 
-use crate::callers::{listed, Callers, Calls, Site};
+use crate::callers::{listed, Callers, Calls};
 use crate::calls::{Arg, Call, FnId, FnKind, Function, ParamKind, Value, ValueKind};
 use crate::config::Config;
 use crate::index::{Index, Keep};
@@ -68,14 +68,15 @@ impl Callers<'_> {
         else {
             return Vec::new();
         };
-        let (test, prod): (Vec<&Site>, Vec<&Site>) = sites
-            .iter()
-            .partition(|site| self.index.files[self.index.calls[site.call].file].is_test);
+        let files = sites.iter().map(|site| &self.index.files[self.index.calls[site.call].file]);
+        let test = files.clone().filter(|file| file.is_test).count();
+        // Examples vary a parameter but never pin one on their own.
+        let prod = files.filter(|file| !file.is_test && !file.evidence_only).count();
         // Called only from tests: dead code, not a constant parameter.
-        if prod.is_empty() {
+        if prod == 0 {
             return Vec::new();
         }
-        let calls = Calls { prod: prod.len(), test: test.len() };
+        let calls = Calls { prod, test };
         let receiver = matches!(function.kind, FnKind::Method | FnKind::ClassMethod);
 
         let mut findings = Vec::new();

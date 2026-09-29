@@ -10,11 +10,18 @@ use serde::Deserialize;
 /// Check ids this build knows. `disable` may only name these.
 const CHECK_IDS: &[&str] = &["one-impl", "const-param", "pass-through"];
 
+/// Indexed as evidence, never reported, whatever `exclude` says.
+///
+/// What an example teaches is the explicit parameter (11 % of const-param
+/// findings on feast, 21 % on dlt), yet its calls and value references still
+/// show how the code is used (dlt `rest_api_source`).
+pub const EVIDENCE_ONLY: &[&str] = &["examples/**", "docs/**", "**/test/resources/**"];
+
 /// The parsed config, with defaults filled in.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(default, deny_unknown_fields, rename_all = "kebab-case")]
 pub struct Config {
-    /// Globs for files never indexed; set, it replaces the defaults.
+    /// Globs for files never indexed: vendored or broken code.
     pub exclude: Vec<String>,
     /// Globs for files counted as tests, never as targets.
     pub test_paths: Vec<String>,
@@ -31,9 +38,7 @@ pub struct Config {
 impl Default for Config {
     fn default() -> Self {
         Self {
-            // What an example teaches is the explicit parameter: 11 % of
-            // const-param findings on feast, 21 % on dlt.
-            exclude: ["examples/**", "docs/**", "**/test/resources/**"].map(str::to_owned).to_vec(),
+            exclude: Vec::new(),
             test_paths: ["tests/**", "test_*.py", "*_test.py", "conftest.py"]
                 .map(str::to_owned)
                 .to_vec(),
@@ -86,8 +91,8 @@ impl Config {
 ///
 /// A pattern also matches at any depth, the way `.gitignore` patterns do:
 /// `test_*.py` covers `pkg/test_x.py`, `tests/**` covers `svc/tests/a.py`.
-pub fn matches_any(relative: &str, patterns: &[String]) -> bool {
-    patterns.iter().any(|pattern| {
+pub fn matches_any(relative: &str, patterns: &[impl AsRef<str>]) -> bool {
+    patterns.iter().map(AsRef::as_ref).any(|pattern| {
         glob_match::glob_match(pattern, relative)
             || glob_match::glob_match(&format!("**/{pattern}"), relative)
     })
@@ -110,13 +115,14 @@ mod tests {
     }
 
     #[test]
-    fn explicit_exclude_replaces_the_defaults() {
-        let defaults = Config::default().exclude;
-        assert!(matches_any("examples/demo.py", &defaults), "examples");
-        assert!(matches_any("site/docs/conf.py", &defaults), "docs at any depth");
-        assert!(matches_any("pkg/test/resources/case.py", &defaults), "test resources");
+    fn examples_are_never_reported_whatever_exclude_says() {
+        assert!(Config::default().exclude.is_empty(), "nothing is dropped from the index");
         let config = Config::parse("[tool.dermestes]\nexclude = [\"gen/**\"]\n").expect("ok");
-        assert_eq!(config.exclude, vec!["gen/**"], "the list replaces, not extends");
+        assert_eq!(config.exclude, vec!["gen/**"], "only what was asked for");
+        assert!(matches_any("examples/demo.py", EVIDENCE_ONLY), "examples");
+        assert!(matches_any("site/docs/conf.py", EVIDENCE_ONLY), "docs at any depth");
+        assert!(matches_any("pkg/test/resources/case.py", EVIDENCE_ONLY), "test resources");
+        assert!(!matches_any("pkg/core.py", EVIDENCE_ONLY), "library code");
     }
 
     #[test]

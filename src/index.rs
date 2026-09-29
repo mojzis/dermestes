@@ -13,7 +13,7 @@ use rayon::prelude::*;
 use tree_sitter::Node;
 
 use crate::calls::{Call, Callee, FnId, Function, Scope, TopName};
-use crate::config::{matches_any, Config};
+use crate::config::{matches_any, Config, EVIDENCE_ONLY};
 use crate::discovery::SourcePath;
 
 /// Position of a class in [`Index::classes`].
@@ -76,6 +76,9 @@ pub struct FileInfo {
     pub modules: Vec<String>,
     pub is_init: bool,
     pub is_test: bool,
+    /// Under an [`EVIDENCE_ONLY`] glob: its calls and references count, its
+    /// definitions are never reported, and its calls alone make no finding.
+    pub evidence_only: bool,
     pub bindings: HashMap<String, Binding>,
     pub has_star_import: bool,
     /// Module-level definitions; `None` when a name is bound more than once,
@@ -341,6 +344,7 @@ fn extract(
             modules,
             is_init,
             is_test: matches_any(relative, &config.test_paths),
+            evidence_only: matches_any(relative, EVIDENCE_ONLY),
             scopes: vec![Scope::default()],
             ..FileInfo::default()
         },

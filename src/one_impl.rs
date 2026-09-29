@@ -161,6 +161,7 @@ impl<'a> Check<'a> {
         let class = &self.index.classes[id];
         let file = &self.index.files[class.file];
         file.is_test
+            || file.evidence_only
             || class.keep == Keep::WithReason
             || self.index.all_names.contains(&class.name)
             || self.index.strings.contains(&class.name)
