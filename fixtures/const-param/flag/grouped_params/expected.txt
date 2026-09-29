@@ -1,0 +1,7 @@
+const-param images.py:1 compose_strips
+  calls: 2 prod, 0 test
+  gap: default 0 never overridden
+  margin: default 0 never overridden
+  border: default 0 never overridden
+  strict: default True never overridden, passed explicitly at 1 site
+  suggest: drop gap, margin, border, use 0 inline; drop strict (and the argument at images.py:12), use True inline

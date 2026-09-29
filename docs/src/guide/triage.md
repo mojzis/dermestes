@@ -6,19 +6,19 @@ Each finding is a deletion candidate: an abstraction with a single user.
 one-impl src/pay/gateway.py:12 PaymentGateway (ABC, 3 abstract methods)
   impl: src/pay/stripe.py:8 StripeGateway
   suggest: inline into StripeGateway, delete PaymentGateway
-const-param src/db.py:209 insert_history(duration_s)
-  calls: 2 prod, 0 test; default None never overridden
+const-param src/db.py:209 insert_history
+  calls: 2 prod, 0 test
+  duration_s: default None never overridden
   suggest: drop duration_s, use None inline
 pass-through src/entries.py:474 resolve_relation
   form: forward → src/entries.py:459 resolve_entry; calls: 1 prod, 0 test
   suggest: call resolve_entry directly at src/entries.py:492, delete resolve_relation
 ```
 
-The first line is the check id, the definition and what it is; the indented
-lines are the evidence and the concrete simplification. A Protocol's impl may
-be structural. `const-param` says `always <value>` when every call passes the
-same literal or constant, and `passed explicitly at N sites` when callers
-write it out; the suggestion names those arguments, which go too.
+The first line is the check id and the definition; indented lines are the
+evidence and the fix. A Protocol's impl may be structural. `const-param`
+has a line per parameter: `always <value>` when every call passes the same
+literal or constant, `passed explicitly at N sites` when callers write it.
 `pass-through` has two forms: `forward`, a body that only calls another repo
 function with its own parameters, `self` attributes or short literals; and
 `single-use`, a private one-line helper with exactly one production call.

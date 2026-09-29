@@ -1,3 +1,4 @@
-const-param m.py:1 render(width)
-  calls: 4 prod, 0 test; always 80 (= default), passed explicitly at 4 sites
+const-param m.py:1 render
+  calls: 4 prod, 0 test
+  width: always 80 (= default), passed explicitly at 4 sites
   suggest: drop width (and the argument at a.py:5, a.py:6, a.py:7, +1 more), use 80 inline

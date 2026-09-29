@@ -1,3 +1,4 @@
-const-param transcript.py:2 Transcript.__init__(cost_usd)
-  calls: 1 prod, 0 test; default 0.0 never overridden
+const-param transcript.py:2 Transcript.__init__
+  calls: 1 prod, 0 test
+  cost_usd: default 0.0 never overridden
   suggest: drop cost_usd, use 0.0 inline

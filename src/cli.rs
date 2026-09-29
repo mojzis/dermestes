@@ -146,7 +146,9 @@ impl Cli {
             return Ok(Outcome::Clean);
         }
         match self.format {
-            Format::Text => findings.iter().try_for_each(|finding| write_text(out, finding))?,
+            Format::Text => {
+                findings.chunk_by(same_function).try_for_each(|group| write_text(out, group))?;
+            }
             Format::Json => writeln!(out, "{}", serde_json::to_string_pretty(&findings)?)?,
         }
         Ok(Outcome::Findings)
@@ -185,11 +187,24 @@ fn project_root(cwd: &Path) -> PathBuf {
     nearest(".git").or_else(|| nearest("pyproject.toml")).unwrap_or(cwd).to_path_buf()
 }
 
-fn write_text(out: &mut impl Write, finding: &Finding) -> Result<()> {
-    match finding {
-        Finding::OneImpl(finding) => write_one_impl(out, finding),
-        Finding::ConstParam(finding) => write_const_param(out, finding),
-        Finding::PassThrough(finding) => write_pass_through(out, finding),
+/// A function's `const-param` findings print as one block.
+fn same_function(a: &Finding, b: &Finding) -> bool {
+    matches!((a, b), (Finding::ConstParam(a), Finding::ConstParam(b)) if a.group == b.group)
+}
+
+/// One block: a single finding, or a function's `const-param` findings.
+fn write_text(out: &mut impl Write, group: &[Finding]) -> Result<()> {
+    let params: Vec<&const_param::Finding> = group
+        .iter()
+        .filter_map(|finding| match finding {
+            Finding::ConstParam(finding) => Some(finding),
+            _ => None,
+        })
+        .collect();
+    match group {
+        [Finding::OneImpl(finding)] => write_one_impl(out, finding),
+        [Finding::PassThrough(finding)] => write_pass_through(out, finding),
+        _ => write_const_param(out, &params),
     }
 }
 
@@ -208,25 +223,28 @@ fn write_pass_through(out: &mut impl Write, finding: &pass_through::Finding) -> 
     Ok(())
 }
 
-fn write_const_param(out: &mut impl Write, finding: &const_param::Finding) -> Result<()> {
-    let f = finding;
-    writeln!(out, "{} {}:{} {}({})", f.check, f.path, f.line, f.name, f.param)?;
-    let (explicit, sites) = (f.sites.len(), if f.sites.len() == 1 { "site" } else { "sites" });
-    let evidence = match (f.form, explicit) {
-        ("never-overridden", 0) => format!("default {} never overridden", f.value),
-        ("never-overridden", n) if n == f.calls.prod + f.calls.test => {
-            format!("always {} (= default), passed explicitly at {n} {sites}", f.value)
-        }
-        ("never-overridden", n) => {
-            format!("default {} never overridden, passed explicitly at {n} {sites}", f.value)
-        }
-        _ => format!("always {}", f.value),
-    };
-    writeln!(out, "  calls: {} prod, {} test; {evidence}", f.calls.prod, f.calls.test)?;
+fn write_const_param(out: &mut impl Write, group: &[&const_param::Finding]) -> Result<()> {
+    let Some(f) = group.first() else { return Ok(()) };
+    writeln!(out, "{} {}:{} {}", f.check, f.path, f.line, f.name)?;
+    writeln!(out, "  calls: {} prod, {} test", f.calls.prod, f.calls.test)?;
+    for f in group {
+        let (explicit, sites) = (f.sites.len(), if f.sites.len() == 1 { "site" } else { "sites" });
+        let evidence = match (f.form, explicit) {
+            ("never-overridden", 0) => format!("default {} never overridden", f.value),
+            ("never-overridden", n) if n == f.calls.prod + f.calls.test => {
+                format!("always {} (= default), passed explicitly at {n} {sites}", f.value)
+            }
+            ("never-overridden", n) => {
+                format!("default {} never overridden, passed explicitly at {n} {sites}", f.value)
+            }
+            _ => format!("always {}", f.value),
+        };
+        writeln!(out, "  {}: {evidence}", f.param)?;
+    }
     if f.keep_missing_reason {
         writeln!(out, "  keep: missing reason")?;
     }
-    writeln!(out, "  suggest: {}", f.suggest)?;
+    writeln!(out, "  suggest: {}", const_param::suggest_group(group))?;
     Ok(())
 }
 

@@ -1,3 +1,4 @@
-const-param ui.py:1 render(border)
-  calls: 2 prod, 0 test; default True never overridden, passed explicitly at 1 site
+const-param ui.py:1 render
+  calls: 2 prod, 0 test
+  border: default True never overridden, passed explicitly at 1 site
   suggest: drop border (and the argument at ui.py:6), use True inline

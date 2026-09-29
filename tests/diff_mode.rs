@@ -151,7 +151,7 @@ fn deleting_the_varying_call_reports_the_parameter() {
     std::fs::write(tmp.path().join("n.py"), "def triple(x):\n    return x * 3\n").expect("write");
     let (code, stdout) = dermestes(tmp.path(), &[]);
     assert_eq!(code, Some(1), "factor is now constant: {stdout}");
-    assert!(stdout.starts_with("const-param m.py:1 scale(factor)\n"), "reported: {stdout}");
+    assert!(stdout.starts_with("const-param m.py:1 scale\n"), "reported: {stdout}");
 }
 
 #[test]

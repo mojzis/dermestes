@@ -1,3 +1,4 @@
-const-param tools/text.py:1 slugify(sep)
-  calls: 2 prod, 0 test; default "-" never overridden, passed explicitly at 1 site
+const-param tools/text.py:1 slugify
+  calls: 2 prod, 0 test
+  sep: default "-" never overridden, passed explicitly at 1 site
   suggest: drop sep (and the argument at app.py:6), use "-" inline

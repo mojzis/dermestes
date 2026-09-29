@@ -1,3 +1,4 @@
-const-param m.py:5 load(strict)
-  calls: 1 prod, 0 test; default True never overridden
+const-param m.py:5 load
+  calls: 1 prod, 0 test
+  strict: default True never overridden
   suggest: drop strict, use True inline

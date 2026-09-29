@@ -22,6 +22,8 @@ pub struct Finding {
     pub line: usize,
     /// Qualified: `Transcript.done`.
     pub name: String,
+    /// `path:line` of the function: its findings print as one block.
+    pub group: String,
     pub param: String,
     /// Source text of the value every site gives.
     pub value: String,
@@ -134,6 +136,7 @@ impl Callers<'_> {
                 path: file.relative.clone(),
                 line: function.line,
                 name: function.qualname.clone(),
+                group: format!("{}:{}", file.relative, function.line),
                 param: param.name.clone(),
                 suggest: suggest(&param.name, &value, &explicit),
                 sites: explicit,
@@ -191,10 +194,32 @@ impl Callers<'_> {
 
 /// `drop p, use v inline`, naming up to three arguments callers must lose.
 fn suggest(param: &str, value: &str, sites: &[String]) -> String {
-    if sites.is_empty() {
-        return format!("drop {param}, use {value} inline");
+    format!("drop {}, use {value} inline", dropped(param, sites))
+}
+
+/// One suggestion for a function's findings; parameters that share a value
+/// share a clause: `drop gap, margin, use 0 inline; drop strict, use True inline`.
+pub fn suggest_group(findings: &[&Finding]) -> String {
+    let mut clauses: Vec<(&str, Vec<String>)> = Vec::new();
+    for finding in findings {
+        let param = dropped(&finding.param, &finding.sites);
+        match clauses.iter_mut().find(|(value, _)| *value == finding.value) {
+            Some((_, params)) => params.push(param),
+            None => clauses.push((&finding.value, vec![param])),
+        }
     }
-    format!("drop {param} (and the argument at {}), use {value} inline", listed(sites))
+    let clauses: Vec<String> = clauses
+        .iter()
+        .map(|(value, params)| format!("drop {}, use {value} inline", params.join(", ")))
+        .collect();
+    clauses.join("; ")
+}
+
+fn dropped(param: &str, sites: &[String]) -> String {
+    if sites.is_empty() {
+        return param.to_owned();
+    }
+    format!("{param} (and the argument at {})", listed(sites))
 }
 
 /// Bind `call`'s arguments to `function`'s parameters, the first `skip` of

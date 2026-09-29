@@ -1,3 +1,4 @@
-const-param db.py:1 insert_history(duration_s)
-  calls: 1 prod, 0 test; default None never overridden
+const-param db.py:1 insert_history
+  calls: 1 prod, 0 test
+  duration_s: default None never overridden
   suggest: drop duration_s, use None inline

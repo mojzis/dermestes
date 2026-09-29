@@ -1,3 +1,4 @@
-const-param log.py:2 Printer._emit(debug)
-  calls: 1 prod, 0 test; default False never overridden
+const-param log.py:2 Printer._emit
+  calls: 1 prod, 0 test
+  debug: default False never overridden
   suggest: drop debug, use False inline

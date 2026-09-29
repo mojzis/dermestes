@@ -1,3 +1,4 @@
-const-param cfg.py:3 Config.load(strict)
-  calls: 1 prod, 0 test; default True never overridden
+const-param cfg.py:3 Config.load
+  calls: 1 prod, 0 test
+  strict: default True never overridden
   suggest: drop strict, use True inline

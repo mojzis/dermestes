@@ -1,3 +1,4 @@
-const-param net.py:5 fetch(timeout)
-  calls: 2 prod, 0 test; always TIMEOUT
+const-param net.py:5 fetch
+  calls: 2 prod, 0 test
+  timeout: always TIMEOUT
   suggest: drop timeout (and the argument at net.py:10, net.py:11), use TIMEOUT inline

@@ -133,6 +133,7 @@ fn json_carries_const_param_fields() {
     assert_eq!(finding["line"], 3, "the def line, not the decorator");
     assert_eq!(finding["name"], "T.done", "qualified name");
     assert_eq!(finding["param"], "cost_usd", "param");
+    assert_eq!(finding["group"], "m.py:3", "the function's block");
     assert_eq!(finding["value"], "None", "value");
     assert_eq!(finding["form"], "never-overridden", "form");
     assert_eq!(finding["calls"], serde_json::json!({"prod": 1, "test": 0}), "calls");
