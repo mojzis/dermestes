@@ -85,6 +85,9 @@ impl Callers<'_> {
         if forward.is_none() && !single_use {
             return None;
         }
+        if forward.is_some() && self.target_shadowed(function, &prod) {
+            return None;
+        }
         let mut places: Vec<(&str, usize)> = prod
             .iter()
             .map(|site| {
@@ -158,6 +161,29 @@ impl Callers<'_> {
                 Arg::Keyword(key, value) => names(value, key) && params.contains(&key.as_str()),
             });
         Some((target, same_name && same_args))
+    }
+
+    /// The forwarding call names its target bare, and a function around some
+    /// production call binds that name (a parameter, local, `for` target or
+    /// import): calling the target there would call something else.
+    fn target_shadowed(&self, function: &Function, prod: &[&Site]) -> bool {
+        let Some(forward) = function.body.forward else { return false };
+        let Callee::Name(name) = &self.index.calls[forward].callee else { return false };
+        prod.iter().any(|site| {
+            let call = &self.index.calls[site.call];
+            let scopes = &self.index.files[call.file].scopes;
+            let mut scope = call.scope;
+            while scope != 0 {
+                let enclosing = &scopes[scope];
+                if enclosing.class.is_none()
+                    && (enclosing.bindings.contains_key(name) || enclosing.defs.contains_key(name))
+                {
+                    return true;
+                }
+                scope = enclosing.parent;
+            }
+            false
+        })
     }
 
     /// A call we could not resolve that could bind to `function`: the count
