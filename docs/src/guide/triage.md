@@ -42,17 +42,17 @@ function with its own parameters, `self` attributes or short literals; and
 - `one-impl`: a test implementation, an unresolvable base or subclass, or a
   plain base class (no `ABC`, no abstract methods) with one subclass.
 - Calls count only when resolved: `f(...)`, `mod.f(...)`, `self.m(...)`,
-  `super().m(...)`, `Class(...)`. A call on a variable (`tr.done()`,
-  `self.client.get()`) is not followed; one that could bind makes the
-  caller-counting checks silent.
+  `super().m(...)`, `Class(...)`. A call on a variable (`tr.done()`) is not
+  followed; one that could bind makes the caller-counting checks silent.
 - Both are silent for functions used as values, decorated ones, overrides,
   overridden methods, methods of a class with a third-party base, calls with
   `*args`/`**kwargs`, and functions only tests call (dead code).
 - `const-param`: a variable, enum member or class attribute is never "the
   same value".
-- `pass-through`: any test caller vetoes it. A wrapper of a third-party
-  function, a `*args` forwarder, a multi-statement or `with`/`for`/`if` helper,
-  a `-> bool` predicate and an `Any`-typed wrapper are never flagged.
+- `pass-through`: any test caller vetoes it. Never flagged: a wrapper of a
+  third-party function, a public wrapper of a private one, a `*args`
+  forwarder, a multi-statement or `with`/`for`/`if` helper, a `-> bool`
+  predicate, an `Any`-typed wrapper.
 - Syntax-error files are skipped. Diff mode ignores untracked files: `git add -N`.
 
 `dermestes guide tune` lists the config keys that exempt whole paths.

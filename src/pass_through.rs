@@ -139,6 +139,10 @@ impl Callers<'_> {
         if call.splat || target == id || self.index.functions[target].name == "__init__" {
             return None;
         }
+        // A public wrapper is the private target's public name.
+        if !private(&function.name) && private(&self.index.functions[target].name) {
+            return None;
+        }
         let receiver = matches!(function.kind, FnKind::Method | FnKind::ClassMethod)
             .then(|| function.params.first())
             .flatten()
@@ -202,15 +206,18 @@ impl Callers<'_> {
 /// The single-use form's shape: private, top-level or a method, one short
 /// simple statement, not a named predicate, not a type-erasing `Any` wrapper.
 fn single_use(function: &Function) -> bool {
-    let name = function.name.as_str();
     let body = &function.body;
-    name.starts_with('_')
-        && !(name.starts_with("__") && name.ends_with("__"))
+    private(&function.name)
         && function.decorators.is_empty()
         && !body.nested
         && body.simple
         && !body.returns_bool
         && !body.any_param
+}
+
+/// `_x`, not a dunder.
+fn private(name: &str) -> bool {
+    name.starts_with('_') && !(name.starts_with("__") && name.ends_with("__"))
 }
 
 /// A parameter name, a `self`/`cls` attribute or a short literal.

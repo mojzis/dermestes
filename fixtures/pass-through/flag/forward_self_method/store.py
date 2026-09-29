@@ -6,10 +6,10 @@ class Store:
         path = self.root + key
         return open(path, mode).read()
 
-    def load(self, key):
+    def _load(self, key):
         return self._read(key, "r")
 
     def refresh(self, key):
-        data = self.load(key)
+        data = self._load(key)
         self._read(key, "rb")
         return data
