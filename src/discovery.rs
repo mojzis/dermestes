@@ -1,12 +1,18 @@
 //! Find the Python files to index. Copied from biston's walker: gitignore-aware
 //! via the `ignore` crate, then filtered by the `exclude` globs.
 
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 use ignore::WalkBuilder;
+use rayon::prelude::*;
 
 use crate::config::matches_any;
+use crate::index::words;
+
+/// Larger non-Python files are data, not text that names a function.
+const MAX_TEXT: u64 = 2 * 1024 * 1024;
 
 /// A discovered file: its path on disk and its `/`-separated path from the
 /// root, which is what output, globs and git diffs all use.
@@ -29,17 +35,24 @@ pub struct Tree {
     /// `pyproject.toml` (`pkg.cli:main`): functions something outside the
     /// repository calls.
     pub entry_points: Vec<String>,
+    /// Directories holding a `py.typed` marker, `/`-ended (`""` for the root):
+    /// their packages promise an API to callers outside the repository.
+    pub typed: Vec<String>,
+    /// Every identifier-like word in the non-Python text files (templates,
+    /// TOML, YAML, Markdown): a function named there may be used by name.
+    pub words: HashSet<String>,
 }
 
 /// Walk `root`. Hidden directories (`.venv`, `.tox`) and gitignored files are skipped.
 pub fn discover(root: &Path, exclude: &[String]) -> Result<Tree> {
     let mut tree = Tree::default();
+    let mut texts = Vec::new();
     for entry in WalkBuilder::new(root).build() {
         let entry = entry.context("error walking directory")?;
         let path = entry.into_path();
         let name = path.file_name().unwrap_or_default();
         let is_python = path.extension().is_some_and(|ext| ext == "py");
-        if !(is_python || name == "pyproject.toml") || !path.is_file() {
+        if !path.is_file() {
             continue;
         }
         let relative = path
@@ -54,7 +67,13 @@ pub fn discover(root: &Path, exclude: &[String]) -> Result<Tree> {
         }
         if is_python {
             tree.files.push(SourcePath { path, relative });
-        } else {
+            continue;
+        }
+        if name == "py.typed" {
+            tree.typed.push(relative.strip_suffix("py.typed").unwrap_or_default().to_owned());
+            continue;
+        }
+        if name == "pyproject.toml" {
             let dir = relative.strip_suffix("pyproject.toml").unwrap_or_default();
             tree.projects.push(dir.to_owned());
             // An unreadable one only loses exemptions; it is noted, like a bad `.py`.
@@ -66,10 +85,34 @@ pub fn discover(root: &Path, exclude: &[String]) -> Result<Tree> {
                 Err(err) => eprintln!("dermestes: skipped entry points: {err:#}"),
             }
         }
+        texts.push(path);
     }
+    tree.words = texts.par_iter().fold(HashSet::new, add_words).reduce(HashSet::new, |mut a, b| {
+        a.extend(b);
+        a
+    });
     tree.files.sort_by(|a, b| a.relative.cmp(&b.relative));
     tree.projects.sort();
+    tree.typed.sort();
     Ok(tree)
+}
+
+/// The words of `path` if it is a small UTF-8 text file; anything else adds none.
+fn add_words(mut found: HashSet<String>, path: &PathBuf) -> HashSet<String> {
+    let small = std::fs::metadata(path).is_ok_and(|meta| meta.len() <= MAX_TEXT);
+    let Some(text) = small
+        .then(|| std::fs::read(path).ok())
+        .flatten()
+        .and_then(|bytes| String::from_utf8(bytes).ok())
+    else {
+        return found;
+    };
+    for word in words(&text) {
+        if !found.contains(word) {
+            found.insert(word.to_owned());
+        }
+    }
+    found
 }
 
 /// The values of `[project.scripts]`, `[project.gui-scripts]` and every

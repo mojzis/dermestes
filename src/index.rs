@@ -86,6 +86,9 @@ pub struct FileInfo {
     pub top: HashMap<String, Option<Symbol>>,
     /// Function and class bodies; `scopes[0]` is the module and stays empty.
     pub scopes: Vec<Scope>,
+    /// Every line each name occurs on, as an identifier or spelled as a
+    /// string literal (`"f"`, `"pkg.mod:f"`): what `dead-code` counts.
+    pub mentions: HashMap<String, Vec<usize>>,
 }
 
 /// The whole repository.
@@ -111,6 +114,9 @@ pub struct Index {
     /// `getattr(x, <computed name>)`: file, scope and `x`'s dotted parts.
     /// Every function of what `x` resolves to has invisible call sites.
     pub dynamic: Vec<(usize, usize, Vec<String>)>,
+    /// The words of `.py` files that are generated or do not parse: they
+    /// are not indexed, but what they mention is still mentioned.
+    pub unparsed_words: HashSet<String>,
 }
 
 /// Per-file extraction output before class ids are assigned.
@@ -135,6 +141,8 @@ struct Extracted {
 pub struct Parsed {
     roots: Vec<String>,
     files: BTreeMap<String, Extracted>,
+    /// The words of each file that was read but not extracted.
+    unparsed: BTreeMap<String, HashSet<String>>,
 }
 
 impl Parsed {
@@ -145,16 +153,25 @@ impl Parsed {
     /// prefixes; each is an import root, as is the repository root.
     pub fn new(files: &[SourcePath], projects: &[String], config: &Config) -> Self {
         let roots = import_roots(files, projects);
-        let extracted: Vec<Result<Option<Extracted>>> = files
+        let extracted: Vec<(Result<Option<Extracted>>, Option<HashSet<String>>)> = files
             .par_iter()
             .map(|file| {
-                let source = std::fs::read_to_string(&file.path)
-                    .with_context(|| format!("cannot read {}", file.relative))?;
-                extract(&file.relative, &source, &roots, config)
+                let source = match std::fs::read_to_string(&file.path)
+                    .with_context(|| format!("cannot read {}", file.relative))
+                {
+                    Ok(source) => source,
+                    Err(err) => return (Err(err), None),
+                };
+                let extracted = extract(&file.relative, &source, &roots, config);
+                let unparsed = !matches!(extracted, Ok(Some(_)));
+                (extracted, unparsed.then(|| words(&source).map(str::to_owned).collect()))
             })
             .collect();
-        let mut parsed = Self { roots, files: BTreeMap::new() };
-        for result in extracted {
+        let mut parsed = Self { roots, files: BTreeMap::new(), unparsed: BTreeMap::new() };
+        for (file, (result, words)) in files.iter().zip(extracted) {
+            if let Some(words) = words {
+                parsed.unparsed.insert(file.relative.clone(), words);
+            }
             match result {
                 Ok(Some(extracted)) => {
                     parsed.files.insert(extracted.info.relative.clone(), extracted);
@@ -184,6 +201,7 @@ impl Parsed {
         let mut parsed = self.clone();
         for relative in sources.keys() {
             parsed.files.remove(relative);
+            parsed.unparsed.remove(relative);
         }
         for extracted in replaced {
             parsed.files.insert(extracted.info.relative.clone(), extracted);
@@ -197,6 +215,7 @@ impl Parsed {
         for extracted in self.files.into_values() {
             index.add(extracted);
         }
+        index.unparsed_words = self.unparsed.into_values().flatten().collect();
         index
     }
 }
@@ -297,6 +316,60 @@ fn module_names(relative: &str, roots: &[String]) -> Vec<String> {
     names
 }
 
+/// The identifier-like words of any text: what a template, a TOML file or an
+/// unparseable `.py` file mentions.
+pub(crate) fn words(text: &str) -> impl Iterator<Item = &str> {
+    text.split(|c: char| !(c.is_alphanumeric() || c == '_')).filter(|word| is_identifier(word))
+}
+
+/// Every identifier in a file, and every name a plain string literal spells
+/// (`"f"`, `"pkg.mod.f"`, `"pkg.mod:f"`), with the lines it occurs on.
+/// Comments are not code; an f-string's interpolations are.
+fn mentions(root: Node<'_>, source: &str) -> HashMap<String, Vec<usize>> {
+    let mut found: HashMap<String, Vec<usize>> = HashMap::new();
+    let mut add = |name: &str, line: usize| match found.get_mut(name) {
+        Some(lines) if lines.last() == Some(&line) => {}
+        Some(lines) => lines.push(line),
+        None => {
+            found.insert(name.to_owned(), vec![line]);
+        }
+    };
+    let mut cursor = root.walk();
+    loop {
+        let node = cursor.node();
+        let line = node.start_position().row + 1;
+        match node.kind() {
+            "identifier" => add(&source[node.byte_range()], line),
+            "string" => {
+                let mut parts = node.walk();
+                let content: Option<Vec<&str>> = node
+                    .named_children(&mut parts)
+                    .filter(|child| child.kind() != "string_start" && child.kind() != "string_end")
+                    .map(|child| {
+                        (child.kind() == "string_content").then(|| &source[child.byte_range()])
+                    })
+                    .collect();
+                let spelled = content.map(|parts| parts.concat()).unwrap_or_default();
+                if spelled.chars().all(|c| c.is_alphanumeric() || matches!(c, '_' | '.' | ':')) {
+                    spelled
+                        .split(['.', ':'])
+                        .filter(|part| is_identifier(part))
+                        .for_each(|part| add(part, line));
+                }
+            }
+            _ => {}
+        }
+        if node.kind() != "comment" && cursor.goto_first_child() {
+            continue;
+        }
+        while !cursor.goto_next_sibling() {
+            if !cursor.goto_parent() {
+                return found;
+            }
+        }
+    }
+}
+
 fn is_identifier(name: &str) -> bool {
     let mut chars = name.chars();
     chars.next().is_some_and(|c| c.is_alphabetic() || c == '_')
@@ -368,6 +441,7 @@ fn extract(
         forward: None,
     };
     walker.visit(root, "", true);
+    walker.info.mentions = mentions(root, source);
     Ok(Some(Extracted {
         info: walker.info,
         classes: walker.classes,

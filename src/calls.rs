@@ -54,6 +54,8 @@ pub struct Function {
     pub qualname: String,
     /// The `def` line, not a decorator's.
     pub line: usize,
+    /// The last line of its body.
+    pub end_line: usize,
     /// The class whose body defines it.
     pub class: Option<ClassId>,
     pub kind: FnKind,
@@ -216,6 +218,7 @@ impl Walker<'_> {
             name: name.clone(),
             qualname: qualname.clone(),
             line: node.start_position().row + 1,
+            end_line: node.end_position().row + 1,
             class,
             kind,
             params: params.clone(),
