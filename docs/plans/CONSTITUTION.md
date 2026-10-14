@@ -36,7 +36,7 @@ Each check has a stable id used in output, config and suppression markers.
 |---|---|---|
 | 1 | `one-impl` | ABC or Protocol with exactly one production implementation |
 | 2 | `const-param` | Parameter whose default is never overridden, or that receives the same literal, at every call site |
-| 3 | `pass-through` | Function whose body only forwards its arguments to another repo function, or a private one-line helper with one production call site |
+| 3 | `pass-through` | Function whose body only forwards its arguments to another repo function, a private one-line helper with one production call site, or a private helper that renames an outside call |
 | 4 | `dead-code` | Function or method no production code mentions: only tests (`test-only`) or nothing (`unused`) |
 
 Definitions:
@@ -60,14 +60,17 @@ Definitions:
   enough. `Class(...)` calls count as calls to `__init__`. An
   explicit literal equal to the default counts as not overriding it. A test call that
   passes a different value counts as variation, so the check stays silent.
-- **pass-through.** Two forms (amendment 2 folded `one-caller` into this check):
+- **pass-through.** Three forms (amendment 2 folded `one-caller` into this check;
+  amendment 5 added `rename`):
   - **forward.** The body, excluding the docstring, is one `return f(...)`,
     `await f(...)` or `f(...)` statement where:
     - `f` resolves to a function defined in the repo;
-    - every argument is a parameter name, `self`/`cls` attribute or short literal;
+    - every argument is a parameter name, `self`/`cls` attribute or short literal,
+      or one `UPPER_CASE` bare name (a module constant by convention);
     - `f(...)` is the outermost node: no `bool(...)`, method chain or subscript around it.
 
-    Any number of callers. Bodies that are SQL, templates or dict literals are not
+    Any number of callers. A wrapper that binds a constant is reported only if it
+    is private, binds nothing else, and has at most 2 production call sites. Bodies that are SQL, templates or dict literals are not
     delegation. A public wrapper of a private target is not reported: it is the
     private function's public name.
   - **single-use** (was `one-caller`). All of these hold:
@@ -83,6 +86,12 @@ Definitions:
     one-caller rows): as first written, one-caller was 43 % precise; the ≤2-line
     and non-`bool` gates bring it to 82 % at 9/20 recall. The misses are
     multi-statement helpers nobody needs flagged.
+  - **rename.** A helper with the single-use shape (private, not nested, no
+    decorator, one ≤2-line simple statement, not `-> bool`, no `Any` parameter)
+    whose body is one call, `g(...)` or `a.b.g(...)`, that does not resolve to a
+    repo function, every argument a parameter or `self`/`cls` attribute, with
+    exactly 2 production call sites and no test caller. With one site it is
+    single-use. Suggestion: call `g(...)` directly at the sites, delete.
 - **dead-code.** A module- or class-level function or method, not nested, whose
   bare name occurs nowhere in production code outside its own body. Two forms:
   `unused` (no occurrence at all) and `test-only` (only test code mentions it).
@@ -260,3 +269,22 @@ in 16 repos, including dlt, feast and litestar).
 - **`dead-code` is added** as check 4, with the forms `unused` and `test-only`. It
   counts name occurrences, not resolved calls, and flags public names only outside
   a `py.typed` package.
+
+### Amendment 5 (2026-10-14)
+
+From the 2026-10-14 recall prototype (`~/git/pp/dermestes/recall-build-prompt.md`).
+
+- **Rename form of `pass-through`.** A private function's body is one call to something that is not
+  a repository function (unresolved, external, or an attribute call such as
+  `date.fromisoformat(value)`). It is reported when every argument is one of the wrapper's own
+  parameters or a receiver attribute (nothing bound), and it has 1–2 production call sites. The
+  other single-use gates apply: no decorators, not nested, a ≤2-line simple body, not `-> bool`,
+  no `Any` parameter. Reason: braindump `_require_date` is `date.fromisoformat` under another name.
+  Public renames stay silent: on dlt and feast they are API vocabulary (`truncate_delta_table`,
+  `pretty_format_exception`).
+- **Forward may bind one module constant.** A forward wrapper may pass an `UPPER_CASE` module name
+  in addition to its parameters, if the wrapper is private, the constant is the only value it binds
+  (no literal as well), and there are ≤2 production call sites. Reason: libris `_extract_tool_input`
+  binds `TOOL_NAME`. A constant bound at many sites (introspect `_get_read_connection`, 8 callers),
+  with a literal as well (`_create_session_stats`), or by a public wrapper (dlt `generate_dlt_id`,
+  which owns the ID-length convention) is a reasonable wrapper.
