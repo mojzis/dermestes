@@ -3,7 +3,7 @@
 Finds abstractions in Python code that have not earned their keep, and reports
 them as deletion candidates an agent can act on.
 
-> **Status:** phase 3. `one-impl`, `const-param` and `pass-through` work.
+> **Status:** phase 5. `one-impl`, `const-param`, `pass-through` and `dead-code` work.
 > See [`docs/plans/CONSTITUTION.md`](docs/plans/CONSTITUTION.md).
 
 ## Checks
@@ -13,6 +13,7 @@ them as deletion candidates an agent can act on.
 | 1 | `one-impl` | ABC or Protocol with exactly one production implementation |
 | 2 | `const-param` | Parameter whose default is never overridden, or that receives the same literal, at every call site |
 | 3 | `pass-through` | Function whose body only forwards its arguments to another repo function, or a private one-line helper with one production call site |
+| 4 | `dead-code` | Function or method no production code mentions: only tests (`test-only`) or nothing (`unused`) |
 
 ## Usage
 

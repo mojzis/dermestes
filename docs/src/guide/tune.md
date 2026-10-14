@@ -18,8 +18,8 @@ disable = ["one-impl"]
   there the explicit parameter is the lesson.
 - `test-paths`: files whose code is counted as tests, never as targets.
 - `ignore-decorators`: decorators that no longer exempt a function from
-  `const-param` or forward `pass-through`, by dotted name or suffix (`cache`
-  covers `functools.cache`).
+  `const-param`, forward `pass-through` or `dead-code`, by dotted name or
+  suffix (`cache` covers `functools.cache`).
 - `public`: globs treated as public API and exempt.
 - `disable`: check ids to skip.
 
@@ -34,7 +34,7 @@ to `getattr`, `setattr`, `hasattr`, `patch` or `patch.object` (a dotted path
 counts by its last part), or used as a string key in a registry dict
 (`{"csv": CsvExporter}`). Docstrings and string type annotations do not count.
 
-`const-param` and `pass-through` also exempt decorated functions (unless
+All but `one-impl` also exempt decorated functions (unless
 `ignore-decorators` lists every decorator), functions used as a value anywhere
 (`register(f)`, `x.f` without a call), overrides, abstract and Protocol
 methods, functions called only under `if __name__ == "__main__":`, and every
@@ -44,6 +44,12 @@ exempts functions named in `[project.scripts]` or `[project.entry-points]`
 of any `pyproject.toml`, anything a test calls, and any private name a test
 spells as a whole string (`"_load"`). Suppress a deliberate wrapper with
 `keep`, or `disable = ["pass-through"]`.
+
+`dead-code` counts mentions, not calls: any identifier or attribute with the
+name, a string spelling it, or the word in any non-`.py` file (a template,
+TOML, Markdown), `docs/` and `examples/` included. It also exempts entry
+points, Alembic `upgrade`/`downgrade`, `_repr_*_` hooks, and public names in a
+package that ships `py.typed`.
 
 A library's public functions are called from outside the repository. List
 their modules in `public` rather than keeping each one.
