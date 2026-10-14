@@ -1,0 +1,3 @@
+dead-code pkg/util.py:1 slugify
+  calls: 0 prod, 0 test
+  suggest: delete slugify

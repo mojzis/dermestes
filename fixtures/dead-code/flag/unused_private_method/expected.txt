@@ -1,0 +1,3 @@
+dead-code store.py:6 Store._legacy_read
+  calls: 0 prod, 0 test
+  suggest: delete Store._legacy_read

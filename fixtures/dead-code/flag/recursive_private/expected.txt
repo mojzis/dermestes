@@ -1,0 +1,3 @@
+dead-code tree.py:1 _walk
+  calls: 0 prod, 0 test
+  suggest: delete _walk

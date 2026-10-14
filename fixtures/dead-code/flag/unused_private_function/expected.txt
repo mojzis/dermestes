@@ -1,0 +1,3 @@
+dead-code report.py:1 _old_total
+  calls: 0 prod, 0 test
+  suggest: delete _old_total

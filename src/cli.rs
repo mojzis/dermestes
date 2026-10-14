@@ -14,8 +14,9 @@ use clap::{Parser, Subcommand, ValueEnum};
 use serde::Serialize;
 
 use crate::config::Config;
+use crate::discovery::Tree;
 use crate::index::{Index, Parsed};
-use crate::{const_param, discovery, git, guide, one_impl, pass_through};
+use crate::{const_param, dead_code, discovery, git, guide, one_impl, pass_through};
 
 const ABOUT: &str = "Finds Python abstractions that have not earned their keep.";
 
@@ -86,6 +87,7 @@ pub enum Finding {
     OneImpl(one_impl::Finding),
     ConstParam(const_param::Finding),
     PassThrough(pass_through::Finding),
+    DeadCode(dead_code::Finding),
 }
 
 impl Finding {
@@ -94,6 +96,7 @@ impl Finding {
             Self::OneImpl(finding) => (&finding.site.path, finding.site.line),
             Self::ConstParam(finding) => (&finding.path, finding.line),
             Self::PassThrough(finding) => (&finding.path, finding.line),
+            Self::DeadCode(finding) => (&finding.path, finding.line),
         }
     }
 
@@ -103,12 +106,13 @@ impl Finding {
             Self::OneImpl(f) => (f.check, &f.site.path, &f.site.name, ""),
             Self::ConstParam(f) => (f.check, &f.path, &f.name, &f.param),
             Self::PassThrough(f) => (f.check, &f.path, &f.name, ""),
+            Self::DeadCode(f) => (f.check, &f.path, &f.name, ""),
         }
     }
 }
 
 /// Every enabled check over `index`, sorted by path, then line.
-fn run_checks(index: &Index, config: &Config, entry_points: &[String]) -> Vec<Finding> {
+fn run_checks(index: &Index, config: &Config, tree: &Tree) -> Vec<Finding> {
     let mut findings = Vec::new();
     if config.enabled(one_impl::ID) {
         findings.extend(one_impl::run(index, config).into_iter().map(Finding::OneImpl));
@@ -117,8 +121,11 @@ fn run_checks(index: &Index, config: &Config, entry_points: &[String]) -> Vec<Fi
         findings.extend(const_param::run(index, config).into_iter().map(Finding::ConstParam));
     }
     if config.enabled(pass_through::ID) {
-        let found = pass_through::run(index, config, entry_points);
+        let found = pass_through::run(index, config, &tree.entry_points);
         findings.extend(found.into_iter().map(Finding::PassThrough));
+    }
+    if config.enabled(dead_code::ID) {
+        findings.extend(dead_code::run(index, config, tree).into_iter().map(Finding::DeadCode));
     }
     findings.sort_by(|a, b| a.path_line().cmp(&b.path_line()));
     findings
@@ -169,11 +176,10 @@ impl Cli {
         }
         let tree = discovery::discover(root, &config.exclude)?;
         let head = Parsed::new(&tree.files, &tree.projects, &config);
-        let entry = &tree.entry_points;
-        let Some(base) = base else { return Ok(run_checks(&head.into_index(), &config, entry)) };
-        let before = run_checks(&head.with_sources(&base, &config).into_index(), &config, entry);
+        let Some(base) = base else { return Ok(run_checks(&head.into_index(), &config, &tree)) };
+        let before = run_checks(&head.with_sources(&base, &config).into_index(), &config, &tree);
         let before: HashSet<_> = before.iter().map(Finding::key).collect();
-        let mut findings = run_checks(&head.into_index(), &config, entry);
+        let mut findings = run_checks(&head.into_index(), &config, &tree);
         findings.retain(|finding| !before.contains(&finding.key()));
         Ok(findings)
     }
@@ -204,6 +210,7 @@ fn write_text(out: &mut impl Write, group: &[Finding]) -> Result<()> {
     match group {
         [Finding::OneImpl(finding)] => write_one_impl(out, finding),
         [Finding::PassThrough(finding)] => write_pass_through(out, finding),
+        [Finding::DeadCode(finding)] => write_dead_code(out, finding),
         _ => write_const_param(out, &params),
     }
 }
@@ -216,6 +223,19 @@ fn write_pass_through(out: &mut impl Write, finding: &pass_through::Finding) -> 
         None => f.form.to_owned(),
     };
     writeln!(out, "  form: {form}; calls: {} prod, {} test", f.calls.prod, f.calls.test)?;
+    if f.keep_missing_reason {
+        writeln!(out, "  keep: missing reason")?;
+    }
+    writeln!(out, "  suggest: {}", f.suggest)?;
+    Ok(())
+}
+
+fn write_dead_code(out: &mut impl Write, f: &dead_code::Finding) -> Result<()> {
+    writeln!(out, "{} {}:{} {}", f.check, f.path, f.line, f.name)?;
+    writeln!(out, "  calls: {} prod, {} test", f.calls.prod, f.calls.test)?;
+    if !f.tests.is_empty() {
+        writeln!(out, "  tests: {}", f.tests.join(", "))?;
+    }
     if f.keep_missing_reason {
         writeln!(out, "  keep: missing reason")?;
     }

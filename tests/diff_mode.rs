@@ -168,3 +168,23 @@ fn deleting_the_second_caller_reveals_a_single_use_helper() {
     assert_eq!(code, Some(1), "now single-use: {stdout}");
     assert!(stdout.starts_with("pass-through m.py:1 _label\n"), "the helper: {stdout}");
 }
+
+/// Deleting the last production mention of a function makes it dead without
+/// touching its `def`.
+#[test]
+fn deleting_the_last_mention_reports_dead_code() {
+    let tmp = TempDir::new().expect("temp dir");
+    git(tmp.path(), &["init", "-q"]);
+    let helper = "def _total(rows):\n    total = 0\n    for row in rows:\n        total += row\n    return total\n";
+    std::fs::write(tmp.path().join("calc.py"), helper).expect("write");
+    let main = "import sys\n\nfrom calc import _total\n\nif __name__ == \"__main__\":\n    print(_total(sys.argv))\n";
+    std::fs::write(tmp.path().join("main.py"), main).expect("write");
+    git(tmp.path(), &["add", "."]);
+    git(tmp.path(), &["commit", "-q", "-m", "used"]);
+    assert_eq!(dermestes(tmp.path(), &[]).0, Some(0), "used: quiet");
+
+    std::fs::write(tmp.path().join("main.py"), "print(\"bye\")\n").expect("write");
+    let (code, stdout) = dermestes(tmp.path(), &[]);
+    assert_eq!(code, Some(1), "the edit left _total unmentioned: {stdout}");
+    assert!(stdout.starts_with("dead-code calc.py:1 _total\n"), "reported at head: {stdout}");
+}

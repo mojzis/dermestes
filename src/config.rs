@@ -8,7 +8,7 @@ use anyhow::{bail, Context, Result};
 use serde::Deserialize;
 
 /// Check ids this build knows. `disable` may only name these.
-const CHECK_IDS: &[&str] = &["one-impl", "const-param", "pass-through"];
+const CHECK_IDS: &[&str] = &["one-impl", "const-param", "pass-through", "dead-code"];
 
 /// Indexed as evidence, never reported, whatever `exclude` says.
 ///

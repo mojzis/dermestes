@@ -1,0 +1,4 @@
+dead-code report.py:1 _fetch_cost_rows
+  calls: 0 prod, 2 test
+  tests: tests/test_report.py:1, tests/test_report.py:5
+  suggest: delete _fetch_cost_rows and the tests that only exercise it, or move it into tests/test_report.py if they use it as setup

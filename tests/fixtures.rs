@@ -36,10 +36,27 @@ fn copy_dir(from: &Path, to: &Path) {
         let target = to.join(path.file_name().expect("has a name"));
         if path.is_dir() {
             copy_dir(&path, &target);
+        } else if path.file_name().is_some_and(|name| name == "expected.txt") {
+            // Harness metadata, not part of the tree: its words would count as mentions.
         } else {
             std::fs::copy(&path, &target).expect("copy");
         }
     }
+}
+
+/// Turn `dead-code` off in a copied case of another check. Those cases are
+/// small programs whose entry points nothing calls, so it would flag them all.
+fn disable_dead_code(dir: &Path) {
+    let path = dir.join("pyproject.toml");
+    let text = std::fs::read_to_string(&path).unwrap_or_default();
+    let text = if text.contains("disable = [") {
+        text.replacen("disable = [", "disable = [\"dead-code\", ", 1)
+    } else if text.contains("[tool.dermestes]") {
+        text.replacen("[tool.dermestes]", "[tool.dermestes]\ndisable = [\"dead-code\"]", 1)
+    } else {
+        format!("{text}\n[tool.dermestes]\ndisable = [\"dead-code\"]\n")
+    };
+    std::fs::write(&path, text).expect("write pyproject.toml");
 }
 
 /// Run on a copy outside this repository: in place, the project root would be
@@ -47,6 +64,10 @@ fn copy_dir(from: &Path, to: &Path) {
 fn run_all(case: &Path) -> (Option<i32>, String, String) {
     let tmp = tempfile::tempdir().expect("tempdir");
     copy_dir(case, tmp.path());
+    let check = case.parent().and_then(Path::parent).and_then(Path::file_name);
+    if check.is_some_and(|check| check != "dead-code") {
+        disable_dead_code(tmp.path());
+    }
     let output = Command::new(env!("CARGO_BIN_EXE_dermestes"))
         .arg("--all")
         .current_dir(tmp.path())
