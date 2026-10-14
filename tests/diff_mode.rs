@@ -158,7 +158,7 @@ fn deleting_the_varying_call_reports_the_parameter() {
 fn deleting_the_second_caller_reveals_a_single_use_helper() {
     let tmp = TempDir::new().expect("temp dir");
     git(tmp.path(), &["init", "-q"]);
-    let two = "def _label(n):\n    return n.title()\n\n\ndef a(n):\n    x = _label(n)\n    return x\n\n\ndef b(n):\n    y = _label(n)\n    return y\n";
+    let two = "def _label(n):\n    return n.title().strip(\"_\")\n\n\ndef a(n):\n    x = _label(n)\n    return x\n\n\ndef b(n):\n    y = _label(n)\n    return y\n";
     std::fs::write(tmp.path().join("m.py"), two).expect("write");
     git(tmp.path(), &["add", "."]);
     git(tmp.path(), &["commit", "-q", "-m", "two callers"]);

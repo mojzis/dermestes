@@ -19,7 +19,7 @@ the code is laid out.
 | `one_impl.rs` | The `one-impl` check and the `Finding` it produces. |
 | `callers.rs` | Resolves every call to a repository function (or keeps it by name as a possible call) and holds the precision guards the caller-counting checks share. |
 | `const_param.rs` | The `const-param` check: resolves every call, binds its arguments, compares each parameter's values across sites. |
-| `pass_through.rs` | The `pass-through` check: a body that is one forwarding call (`forward`), or a private one-line helper with one production call (`single-use`). |
+| `pass_through.rs` | The `pass-through` check: a body that is one forwarding call (`forward`), a private one-line helper with one production call (`single-use`), or a private helper renaming an outside call for two (`rename`). |
 | `git.rs` | The only subprocess: `git diff --unified=0`, plus the working tree, rebuilds each changed file's base side. |
 
 ## A run

@@ -1,6 +1,9 @@
-//! The `pass-through` check: a function that only forwards its arguments to
-//! another repository function (`forward`), or a private one-line helper with
-//! a single production call site (`single-use`).
+//! The `pass-through` check: a function that adds nothing over the call it makes.
+//!
+//! Three forms: it only forwards its arguments to another repository function
+//! (`forward`), it is a private one-line helper with a single production call
+//! site (`single-use`), or a private helper that only renames an outside call
+//! for two call sites (`rename`).
 
 use std::collections::HashSet;
 
@@ -35,7 +38,7 @@ pub struct Finding {
     pub line: usize,
     /// Qualified: `Store.load`.
     pub name: String,
-    /// `forward` or `single-use`.
+    /// `forward`, `single-use` or `rename`.
     pub form: &'static str,
     /// Set for `forward`.
     pub target: Option<Target>,
@@ -65,7 +68,7 @@ impl Callers<'_> {
         let function = &self.index.functions[id];
         let forward = self.forward(id);
         // A `super()`-only override is the one override this check reports.
-        let inherits = forward.is_some_and(|(_, inherits)| inherits);
+        let inherits = forward.as_ref().is_some_and(|forward| forward.inherits);
         if self.guarded(id, config) || (self.overrides(id) && !inherits) {
             return None;
         }
@@ -82,11 +85,19 @@ impl Callers<'_> {
         if !test.is_empty() || patched || prod.is_empty() || self.possibly_called(function) {
             return None;
         }
-        let single_use = prod.len() == 1 && single_use(function);
-        if forward.is_none() && !single_use {
+        // A constant bound once or twice is the caller's to name; at more
+        // sites the wrapper saves repeating it.
+        if forward.as_ref().is_some_and(|forward| forward.constant) && prod.len() > 2 {
             return None;
         }
-        if forward.is_some() && self.target_shadowed(function, &prod) {
+        let single_use = prod.len() == 1 && single_use(function);
+        // With one site, a rename is single-use, and "inline" says the same.
+        let rename =
+            if forward.is_none() && prod.len() == 2 { self.rename(function) } else { None };
+        if forward.is_none() && !single_use && rename.is_none() {
+            return None;
+        }
+        if (forward.is_some() || rename.is_some()) && self.target_shadowed(function, &prod) {
             return None;
         }
         let mut places: Vec<(&str, usize)> = prod
@@ -100,7 +111,7 @@ impl Callers<'_> {
         let sites: Vec<String> =
             places.iter().map(|(path, line)| format!("{path}:{line}")).collect();
 
-        let target = forward.map(|(target, _)| &self.index.functions[target]);
+        let target = forward.map(|forward| &self.index.functions[forward.target]);
         let suggest = match (target, inherits) {
             (Some(target), true) => {
                 format!("delete {}, {} is inherited", function.qualname, target.qualname)
@@ -112,14 +123,26 @@ impl Callers<'_> {
                 if function.is_async && !target.is_async { " (drop the await)" } else { "" },
                 function.qualname
             ),
-            (None, _) => format!("inline at {}, delete {}", listed(&sites), function.qualname),
+            (None, _) => match &rename {
+                Some(call) => format!(
+                    "call {call} directly at {}, delete {}",
+                    listed(&sites),
+                    function.qualname
+                ),
+                None => format!("inline at {}, delete {}", listed(&sites), function.qualname),
+            },
+        };
+        let form = match (target, &rename) {
+            (Some(_), _) => "forward",
+            (None, Some(_)) => "rename",
+            (None, None) => "single-use",
         };
         Some(Finding {
             check: ID,
             path: self.index.files[function.file].relative.clone(),
             line: function.line,
             name: function.qualname.clone(),
-            form: if target.is_some() { "forward" } else { "single-use" },
+            form,
             target: target.map(|target| Target {
                 name: target.qualname.clone(),
                 at: format!("{}:{}", self.index.files[target.file].relative, target.line),
@@ -131,9 +154,8 @@ impl Callers<'_> {
         })
     }
 
-    /// The repository function `id`'s whole body forwards to, and whether that
-    /// is `super().<same name>(<same arguments>)`.
-    fn forward(&self, id: FnId) -> Option<(FnId, bool)> {
+    /// The repository function `id`'s whole body forwards to.
+    fn forward(&self, id: FnId) -> Option<Forward> {
         let function = &self.index.functions[id];
         let call = &self.index.calls[function.body.forward?];
         let Resolved::Function(target, _) = self.resolve_call(call) else { return None };
@@ -144,24 +166,44 @@ impl Callers<'_> {
         if !private(&function.name) && private(&self.index.functions[target].name) {
             return None;
         }
-        let receiver = matches!(function.kind, FnKind::Method | FnKind::ClassMethod)
-            .then(|| function.params.first())
-            .flatten()
-            .map(|param| param.name.as_str());
-        let params: Vec<&str> = function
-            .params
-            .iter()
-            .map(|param| param.name.as_str())
-            .skip(usize::from(receiver.is_some()))
-            .collect();
-        let values = call.args.iter().map(|arg| match arg {
-            Arg::Positional(value) | Arg::Keyword(_, value) => value,
-        });
-        if !values.clone().all(|value| forwardable(value, &params, receiver)) {
+        let (params, receiver) = own_names(function);
+        let bound: Vec<&Value> =
+            values(&call.args).filter(|value| !own(value, &params, receiver)).collect();
+        if !bound.iter().all(|value| short_literal(value) || constant(value)) {
+            return None;
+        }
+        // A constant may be the one value a private wrapper binds. Next to
+        // another value, or under a public name, the wrapper is a convention.
+        let constant = bound.iter().any(|value| constant(value));
+        if constant && (bound.len() > 1 || !private(&function.name)) {
             return None;
         }
         let same_name = matches!(&call.callee, Callee::Super(_, name) if *name == function.name);
-        Some((target, same_name && passes_through(&call.args, &params)))
+        let inherits = same_name && passes_through(&call.args, &params);
+        Some(Forward { target, inherits, constant })
+    }
+
+    /// The call a private helper's body makes to something outside the
+    /// repository, `date.fromisoformat(v)`, when it passes only the helper's
+    /// own parameters and receiver attributes: the helper is another name.
+    fn rename(&self, function: &Function) -> Option<String> {
+        if !single_use(function) {
+            return None;
+        }
+        let call = &self.index.calls[function.body.forward?];
+        let callee = match &call.callee {
+            Callee::Name(name) => name.clone(),
+            Callee::Dotted(parts, name) => format!("{}.{name}", parts.join(".")),
+            _ => return None,
+        };
+        if call.splat || matches!(self.resolve_call(call), Resolved::Function(..)) {
+            return None;
+        }
+        let (params, receiver) = own_names(function);
+        if !values(&call.args).all(|value| own(value, &params, receiver)) {
+            return None;
+        }
+        Some(format!("{callee}({})", rendered(&call.args)))
     }
 
     /// `target`, or `target(<arguments>)` when the wrapper does more than
@@ -175,14 +217,7 @@ impl Callers<'_> {
         if passes_through(args, &params) {
             return target.name.clone();
         }
-        let args: Vec<String> = args
-            .iter()
-            .map(|arg| match arg {
-                Arg::Positional(value) => value.text.clone(),
-                Arg::Keyword(key, value) => format!("{key}={}", value.text),
-            })
-            .collect();
-        format!("{}({})", target.name, args.join(", "))
+        format!("{}({})", target.name, rendered(args))
     }
 
     /// The forwarding call names its target bare, and a function around some
@@ -237,17 +272,75 @@ fn private(name: &str) -> bool {
     name.starts_with('_') && !(name.starts_with("__") && name.ends_with("__"))
 }
 
-/// A parameter name, a `self`/`cls` attribute or a short literal.
-fn forwardable(value: &Value, params: &[&str], receiver: Option<&str>) -> bool {
+/// What a forward wrapper delegates to.
+struct Forward {
+    target: FnId,
+    /// The call is `super().<same name>(<same arguments>)`.
+    inherits: bool,
+    /// The call binds a module constant.
+    constant: bool,
+}
+
+/// A function's parameters, without the receiver, and the receiver of a
+/// method or classmethod.
+fn own_names(function: &Function) -> (Vec<&str>, Option<&str>) {
+    let receiver = matches!(function.kind, FnKind::Method | FnKind::ClassMethod)
+        .then(|| function.params.first())
+        .flatten()
+        .map(|param| param.name.as_str());
+    let params = function
+        .params
+        .iter()
+        .map(|param| param.name.as_str())
+        .skip(usize::from(receiver.is_some()))
+        .collect();
+    (params, receiver)
+}
+
+fn values(args: &[Arg]) -> impl Iterator<Item = &Value> {
+    args.iter().map(|arg| match arg {
+        Arg::Positional(value) | Arg::Keyword(_, value) => value,
+    })
+}
+
+/// The arguments as written: `resp, TOOL_NAME, flush=True`.
+fn rendered(args: &[Arg]) -> String {
+    let args: Vec<String> = args
+        .iter()
+        .map(|arg| match arg {
+            Arg::Positional(value) => value.text.clone(),
+            Arg::Keyword(key, value) => format!("{key}={}", value.text),
+        })
+        .collect();
+    args.join(", ")
+}
+
+/// A parameter name or a `self`/`cls` attribute: nothing the wrapper binds.
+fn own(value: &Value, params: &[&str], receiver: Option<&str>) -> bool {
     match &value.kind {
         ValueKind::Name(parts) => match &parts[..] {
             [name] => params.contains(&name.as_str()) || Some(name.as_str()) == receiver,
             [object, _] => Some(object.as_str()) == receiver,
             _ => false,
         },
-        ValueKind::Literal(_) => value.text.len() <= SHORT_LITERAL && !value.text.contains('\n'),
-        ValueKind::Other => false,
+        _ => false,
     }
+}
+
+/// `"mcp"`, not a query.
+fn short_literal(value: &Value) -> bool {
+    matches!(value.kind, ValueKind::Literal(_))
+        && value.text.len() <= SHORT_LITERAL
+        && !value.text.contains('\n')
+}
+
+/// `TOOL_NAME`: a bare name that is a module constant by convention.
+fn constant(value: &Value) -> bool {
+    let ValueKind::Name(parts) = &value.kind else { return false };
+    let [name] = &parts[..] else { return false };
+    name.len() > 1
+        && name.chars().any(|c| c.is_ascii_uppercase())
+        && name.chars().all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_')
 }
 
 /// Every parameter, once each, by position or as `name=name`, and nothing else.

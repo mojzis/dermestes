@@ -16,12 +16,12 @@ pass-through src/entries.py:474 resolve_relation
 ```
 
 The first line is the check id and the definition; indented lines are the
-evidence and the fix. A Protocol's impl may be structural. `const-param`
-has a line per parameter: `always <value>` when every call passes the same
+evidence and the fix. A Protocol's impl may be structural. `const-param` has
+a line per parameter: `always <value>` when every call passes the same
 literal or constant, `passed explicitly at N sites` when callers write it.
-`pass-through` has two forms: `forward`, a body that only calls another repo
-function with its own parameters, `self` attributes or short literals; and
-`single-use`, a private one-line helper with exactly one production call.
+`pass-through` forms: `forward` only calls a repo function, binding at most
+short literals or one constant; `rename` is a private helper renaming an
+outside call for 2 callers; `single-use`, a private one-liner with one call.
 
 **For each finding:**
 
@@ -31,8 +31,8 @@ function with its own parameters, `self` attributes or short literals; and
    - `const-param`: remove the parameter, use the value in the body, delete
      every branch the value makes dead, then update the calls.
    - `pass-through`: replace each listed call with the call the suggestion
-     writes, arguments the wrapper bound included (forward), or with the body
-     (single-use), then delete it. A `super()`-only override is just deleted.
+     writes (forward, rename) or the body (single-use), then delete it. A
+     `super()`-only override is just deleted.
 3. If it is deliberate, suppress it with a reason on any line of its header
    (a decorator through the closing `:`): `# dermestes: keep <reason>`.
    Without a reason it still reports, with a `keep: missing reason` line.

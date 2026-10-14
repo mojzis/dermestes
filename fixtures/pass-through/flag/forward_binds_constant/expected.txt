@@ -1,0 +1,3 @@
+pass-through tools.py:8 _extract_tool_input
+  form: forward → tools.py:4 extract_tool_input; calls: 2 prod, 0 test
+  suggest: call extract_tool_input(resp, TOOL_NAME) directly at tools.py:13, tools.py:17, delete _extract_tool_input
