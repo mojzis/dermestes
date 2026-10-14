@@ -12,7 +12,7 @@ It exists because agents write speculative generality quickly: interfaces with o
 
 - Not a complexity judge. It never says "too complex", only "this abstraction has N=1 users, here is the evidence".
 - Not a refactoring tool. It never rewrites code.
-- Not a dead-code finder, clone detector, or style linter. Sibling tools cover those.
+- Not a reachability analyser, clone detector, or style linter. It flags only a repository function that production code never mentions by name: an abstraction kept alive by its tests, or by nothing.
 - Not an LLM reviewer. It produces the ranked suspect list that a reviewer (human or agent) rules on.
 
 ## Principles
@@ -37,6 +37,7 @@ Each check has a stable id used in output, config and suppression markers.
 | 1 | `one-impl` | ABC or Protocol with exactly one production implementation |
 | 2 | `const-param` | Parameter whose default is never overridden, or that receives the same literal, at every call site |
 | 3 | `pass-through` | Function whose body only forwards its arguments to another repo function, or a private one-line helper with one production call site |
+| 4 | `dead-code` | Function or method no production code mentions: only tests (`test-only`) or nothing (`unused`) |
 
 Definitions:
 
@@ -82,6 +83,34 @@ Definitions:
     one-caller rows): as first written, one-caller was 43 % precise; the ≤2-line
     and non-`bool` gates bring it to 82 % at 9/20 recall. The misses are
     multi-statement helpers nobody needs flagged.
+- **dead-code.** A module- or class-level function or method, not nested, whose
+  bare name occurs nowhere in production code outside its own body. Two forms:
+  `unused` (no occurrence at all) and `test-only` (only test code mentions it).
+  - An *occurrence* is any of: a name or attribute (`f`, `obj.f`, `obj.f()`, with
+    any receiver, resolved or not), an imported name, a string literal that spells
+    the name (`"f"`, `"pkg.mod.f"`, `"pkg.mod:f"`), or the name as a whole word in
+    any non-`.py` file the walk sees (templates, TOML, YAML, Markdown, `.mako`).
+    Default-excluded paths count as production.
+  - Unlike the other checks, it does not count resolved calls. Name occurrence
+    over-counts uses, so it loses only recall. Reason (corpus round 6): of 60
+    functions with 0 resolved production calls but a production occurrence of
+    the name, 36 were traps (registries, `Depends`, `partial`, `Thread(target=…)`,
+    Jinja globals, argparse `type=`).
+  - A public name (no leading `_`) is flagged only outside a package that ships
+    `py.typed`: in a typed package it may be API that callers outside the repo
+    use. Reason: public names in the 6 corpus repos with `py.typed` were 20
+    candidates, 37 debatable, 21 justified and 4 traps; "private, or outside a
+    typed package" kept 46 candidates, 5 debatable, 0 justified, 0 traps.
+  - Exempt, beyond the shared guards: `pyproject.toml` entry points;
+    `upgrade`/`downgrade` in a module that assigns `revision` and `down_revision`
+    at top level (Alembic); `_repr_*_` display hooks.
+
+  Suggestion: `unused` → delete. `test-only` → delete it and the tests that only
+  exercise it, or move it into the test file if the tests use it as setup; the
+  test sites are listed. Known misses: a function whose only callers are
+  themselves dead, a name mentioned only in prose or only in an application's
+  `__all__`, a name that collides with another method, and any public name in a
+  typed package.
 
 Candidates for later, only after the above prove useful on real repos: class with `__init__` plus one method, `**kwargs` never populated, wrap-and-reraise handlers, field-by-field mirrored models.
 
@@ -218,3 +247,16 @@ From the phase-3 evaluation (`~/git/pp/dermestes/history/2026-09-28-phase3-eval.
   of private functions.
 - **A function's `const-param` findings are grouped** into one text block. Reason: 108
   corpus findings are 85 functions; feast's 78 are 46.
+
+### Amendment 4 (2026-10-14)
+
+From the dead-code corpus (`~/git/pp/dermestes/summary.md` round 6: 247 labelled rows
+in 16 repos, including dlt, feast and litestar).
+
+- **"What it is not" no longer excludes dead code.** No sibling tool covers it
+  (biston finds clones, gerenuk selects tests, tyreach snapshots reachability).
+  Whole-program reachability still needs resolution dermestes lacks (principle 7),
+  so the check is limited to "no production code mentions the name".
+- **`dead-code` is added** as check 4, with the forms `unused` and `test-only`. It
+  counts name occurrences, not resolved calls, and flags public names only outside
+  a `py.typed` package.
