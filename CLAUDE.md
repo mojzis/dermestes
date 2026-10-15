@@ -34,6 +34,24 @@ make docs          # build the mdBook site + llms.txt
 
 If formatting fails, fix it with `cargo fmt --all` and re-run.
 
+## Releasing
+
+**Always release with `cargo release`. Never bump the version, commit or tag
+by hand.** Configured in `release.toml`.
+
+```sh
+make review                          # must pass first
+cargo release patch                  # dry run: shows the bump and the docs badge diff
+cargo release patch --execute        # bumps Cargo.toml/.lock + docs/version.js, commits, tags vX.Y.Z, pushes
+```
+
+Use `minor` / `major` instead of `patch` as appropriate. The pushed `v*` tag
+triggers `.github/workflows/release.yml`: wheels for Linux/macOS/Windows, the
+sdist, a GitHub release, and PyPI via trusted publishing (environment `pypi`).
+`publish = false` keeps it off crates.io. Pushing a release is outward-facing
+and irreversible on PyPI — only do it when the user asks. Afterwards, check
+the run (`gh run list --workflow release.yml`) and `uvx dermestes@latest --version`.
+
 ## Development Workflow
 
 All features and bug fixes follow TDD (red-green-refactor). No implementation
