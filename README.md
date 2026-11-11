@@ -3,6 +3,8 @@
 Finds abstractions in Python code that have not earned their keep, and reports
 them as deletion candidates an agent can act on.
 
+📖 **[Documentation](https://mojzis.github.io/dermestes/)** · part of **[aesop](https://mojzis.github.io/aesop/)**, a small menagerie of tools for agentic Python
+
 > **Status:** phase 5. `one-impl`, `const-param`, `pass-through` and `dead-code` work.
 > See [`docs/plans/CONSTITUTION.md`](docs/plans/CONSTITUTION.md).
 
