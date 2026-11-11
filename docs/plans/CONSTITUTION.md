@@ -12,7 +12,7 @@ It exists because agents write speculative generality quickly: interfaces with o
 
 - Not a complexity judge. It never says "too complex", only "this abstraction has N=1 users, here is the evidence".
 - Not a refactoring tool. It never rewrites code.
-- Not a reachability analyser, clone detector, or style linter. It flags only a repository function that production code never mentions by name: an abstraction kept alive by its tests, or by nothing.
+- Not a reachability analyser, clone detector, or style linter. It flags only a repository function or class that production code never mentions by name: an abstraction kept alive by its tests, or by nothing.
 - Not an LLM reviewer. It produces the ranked suspect list that a reviewer (human or agent) rules on.
 
 ## Principles
@@ -35,9 +35,12 @@ Each check has a stable id used in output, config and suppression markers.
 | Phase | id | Flags |
 |---|---|---|
 | 1 | `one-impl` | ABC or Protocol with exactly one production implementation |
-| 2 | `const-param` | Parameter whose default is never overridden, or that receives the same literal, at every call site |
+| 2 | `const-param` | Parameter whose default is never overridden, or that receives the same literal, at every call site; a `*args` or `**kwargs` no call site populates; the branches such a constant makes dead |
 | 3 | `pass-through` | Function whose body only forwards its arguments to another repo function, a private one-line helper with one production call site, or a private helper that renames an outside call |
-| 4 | `dead-code` | Function or method no production code mentions: only tests (`test-only`) or nothing (`unused`) |
+| 4 | `dead-code` | Function, method, class or method family no production code mentions: only tests (`test-only`) or nothing (`unused`) |
+| 6 | `unused-result` | Function that returns a value every call site discards |
+| 6 | `needless-async` | `async def` that awaits nothing and is awaited directly at every call site |
+| 6 | `fn-class` | Class with `__init__` plus one method, only ever used as `C(...).m(...)` |
 
 Definitions:
 
@@ -60,6 +63,20 @@ Definitions:
   enough. `Class(...)` calls count as calls to `__init__`. An
   explicit literal equal to the default counts as not overriding it. A test call that
   passes a different value counts as variation, so the check stays silent.
+
+  Two more forms (amendment 6):
+  - **Variadic never populated.** A `*args` or `**kwargs` parameter of a function
+    with at least one resolved production call, where no call passes a surplus
+    positional or keyword argument, no call uses a splat, and no call of that name
+    is unresolved. A name starting with `_` (`**_`) is a deliberate sink and silent.
+    A test call that populates it counts as variation. Suggestion: drop it, and the
+    place the body forwards it when forwarding is its only use.
+  - **Dead branch.** Never a finding of its own: evidence on a parameter already
+    reported with a literal value. Every `if`, `elif`, conditional expression or
+    `while` whose test is exactly `p`, `not p`, `p is None`, `p is not None`,
+    `p == <literal>`, `p != <literal>` or `p in (<literals>)`, where `p` is not
+    rebound anywhere in the body, is evaluated with the constant, and the spans
+    that cannot run are listed. Silent on `and`/`or` tests and the walrus.
 - **pass-through.** Three forms (amendment 2 folded `one-caller` into this check;
   amendment 5 added `rename`):
   - **forward.** The body, excluding the docstring, is one `return f(...)`,
@@ -121,7 +138,39 @@ Definitions:
   `__all__`, a name that collides with another method, and any public name in a
   typed package.
 
-Candidates for later, only after the above prove useful on real repos: class with `__init__` plus one method, `**kwargs` never populated, wrap-and-reraise handlers, field-by-field mirrored models.
+- **dead-code, classes** (amendment 6; built in phase 6 stage C).
+  - **Dead class.** A module-level class whose bare name occurs nowhere in
+    production outside its own span, by the same occurrence rule as functions;
+    forms `unused` and `test-only`. Silent on: any class decorator other than
+    `dataclass`, `runtime_checkable`, `final`, `total_ordering`; any `metaclass=`;
+    an ancestor that defines `__init_subclass__`; any `.__subclasses__` use in the
+    repo; a hierarchy that does not resolve inside the repo, ancestors and
+    descendants both (ORM and Pydantic models, enums, exceptions); a public name in
+    a `py.typed` package.
+  - **Dead method family.** A method defined on a repo class and overridden in repo
+    subclasses, in a resolved hierarchy, whose name occurs nowhere in production
+    or tests outside the family's own bodies. This lifts the exemption for
+    abstract and overridden methods in exactly this case. For a Protocol family,
+    no class outside the family may define the name.
+- **unused-result** (amendment 6; phase 6 stage B). A function with at least one
+  value-returning `return`, at least one resolved production call and no
+  unresolved call of its name, where every resolved call, production and test,
+  is a bare expression statement (or a bare `await f(...)` statement). Silent
+  when every return is `self`/`cls` (fluent), for generators, and when any test
+  uses the result. Suggestion: return nothing.
+- **needless-async** (amendment 6; phase 6 stage B). An `async def` whose body has
+  no `await`, `async for`, `async with` or `yield`, that is neither an override
+  nor overridden, with at least one resolved production call, no unresolved
+  call, and every resolved call directly awaited (`await f(...)`; not
+  `gather(f())`, `create_task(f())` or an assignment of the coroutine).
+  Suggestion: drop `async` and the `await` at each site.
+- **fn-class** (amendment 6; phase 6 stage C). A class with no bases, no
+  decorator, no class-level assignments and exactly `__init__` plus one
+  non-dunder method, whose name is never used as a value, where every
+  instantiation in the repo, tests included, is `C(args).m(args2)` in one
+  expression. Suggestion: make the method a function, delete the class.
+
+Candidates for later, only after the above prove useful on real repos: field-by-field mirrored models.
 
 Each phase must be usable on its own and validated before the next begins, against
 the labelled corpus in `~/git/pp/dermestes/truth/` (precision on non-debatable rows, trap
@@ -288,3 +337,21 @@ From the 2026-10-14 recall prototype (`~/git/pp/dermestes/recall-build-prompt.md
   binds `TOOL_NAME`. A constant bound at many sites (introspect `_get_read_connection`, 8 callers),
   with a literal as well (`_create_session_stats`), or by a public wrapper (dlt `generate_dlt_id`,
   which owns the ID-length convention) is a reasonable wrapper.
+
+### Amendment 6 (2026-11-11)
+
+From the phase-6 build prompt (`docs/plans/BUILD_PROMPT_PHASE6.md`). The checks are
+built in three stages; each stage's corpus numbers are added here at its gate.
+
+- **"What it is not" covers classes.** "A repository function" becomes "a repository
+  function or class". Reason: a Protocol nobody mentions and an exception nobody
+  raises are abstractions kept alive by nothing, which is the tool's purpose. Unused
+  variables, imports and unreachable statements stay out; ruff and vulture cover them.
+- **`const-param` gains two forms**: a variadic no call site populates, and the
+  branches a constant parameter makes dead (evidence on an existing finding, never
+  a finding of its own).
+- **`dead-code` gains classes and method families.**
+- **`unused-result`, `needless-async` and `fn-class` are added.**
+- **"Candidates for later" shrinks.** `**kwargs` never populated and the class with
+  `__init__` plus one method are built here. Wrap-and-reraise handlers are dropped:
+  ruff `TRY203` and pylint `W0706` cover the plain form. Mirrored models stay.
