@@ -1,0 +1,3 @@
+needless-async cache.py:1 load_index
+  calls: 2 prod, 0 test; awaits in body: 0
+  suggest: drop async; drop the await at cache.py:7, cache.py:12

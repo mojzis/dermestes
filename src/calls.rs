@@ -73,6 +73,17 @@ pub struct Function {
     pub body: Body,
     /// Branches that test one parameter against a literal.
     pub branches: Vec<Branch>,
+    /// The line of every `return <value>`; `return` and `return None` are not.
+    pub returns: Vec<usize>,
+    /// Some `return` gives back the receiver: a fluent method.
+    pub returns_receiver: bool,
+    /// Some `return` gives back more than a name, an attribute, a literal or a
+    /// tuple of those: dropping the value could drop a side effect.
+    pub returns_computed: bool,
+    /// The body has an `await`, `async for` or `async with` of its own.
+    pub awaits: bool,
+    /// The body has a `yield`: a generator.
+    pub yields: bool,
 }
 
 /// A function's body, excluding its docstring, as `pass-through` reads it.
@@ -144,6 +155,10 @@ pub struct Call {
     pub splat: bool,
     /// Under `if __name__ == "__main__":`.
     pub under_main: bool,
+    /// The call, or its `await`, is a whole expression statement: the result is dropped.
+    pub bare: bool,
+    /// Directly under `await`.
+    pub awaited: bool,
 }
 
 /// A function or class body. Class bodies are skipped when a nested function
@@ -239,6 +254,11 @@ impl Walker<'_> {
             keep: self.header_keep(node),
             body,
             branches,
+            returns: Vec::new(),
+            returns_receiver: false,
+            returns_computed: false,
+            awaits: false,
+            yields: false,
         });
         self.forward = forward.map(|call| (call, id));
         if top {
@@ -256,7 +276,29 @@ impl Walker<'_> {
             ..Scope::default()
         };
         if let Some(body) = node.child_by_field_name("body") {
+            let outer = self.current.replace(id);
             self.in_scope(scope, |walker| walker.visit(body, &qualname, false));
+            self.current = outer;
+        }
+    }
+
+    /// Note what a `return`, `await`, `yield` or `async` statement says about
+    /// the function whose body it is in.
+    pub(crate) fn flow(&mut self, node: Node<'_>) {
+        let Some(function) = self.current.map(|id| &mut self.functions[id]) else { return };
+        match node.kind() {
+            "return_statement" => {
+                let value = node.named_child(0).filter(|value| value.kind() != "none");
+                let Some(value) = value else { return };
+                function.returns.push(node.start_position().row + 1);
+                function.returns_computed |= !plain(value);
+                let receiver = self.info.scopes[self.scope].method.as_ref();
+                function.returns_receiver |= value.kind() == "identifier"
+                    && receiver.is_some_and(|(_, name)| name == &self.source[value.byte_range()]);
+            }
+            "yield" => function.yields = true,
+            "await" => function.awaits = true,
+            _ => function.awaits |= node.child(0).is_some_and(|first| first.kind() == "async"),
         }
     }
 
@@ -419,6 +461,8 @@ impl Walker<'_> {
             if let Some((_, function)) = self.forward.filter(|(id, _)| *id == node.id()) {
                 self.functions[function].body.forward = Some(self.calls.len());
             }
+            let awaited = node.parent().filter(|parent| parent.kind() == "await");
+            let statement = awaited.unwrap_or(node).parent();
             self.calls.push(Call {
                 file: 0,
                 line: node.start_position().row + 1,
@@ -427,6 +471,10 @@ impl Walker<'_> {
                 args,
                 splat,
                 under_main: self.under_main,
+                bare: statement.is_some_and(|statement| {
+                    statement.kind() == "expression_statement" && statement.named_child_count() == 1
+                }),
+                awaited: awaited.is_some(),
             });
         }
     }
@@ -586,6 +634,20 @@ impl Walker<'_> {
             let text = self.text(condition);
             text.contains("__name__") && text.contains("__main__")
         })
+    }
+}
+
+/// A name, an attribute of one, a literal, or a tuple of those: reading it does nothing.
+fn plain(value: Node<'_>) -> bool {
+    let mut cursor = value.walk();
+    match value.kind() {
+        "identifier" | "integer" | "float" | "true" | "false" | "none" => true,
+        "string" => !value.named_children(&mut cursor).any(|part| part.kind() == "interpolation"),
+        "attribute" => value.child_by_field_name("object").is_some_and(plain),
+        "tuple" | "expression_list" | "parenthesized_expression" => {
+            value.named_children(&mut cursor).all(plain)
+        }
+        _ => false,
     }
 }
 

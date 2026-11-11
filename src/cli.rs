@@ -13,10 +13,11 @@ use clap::{Parser, Subcommand, ValueEnum};
 
 use serde::Serialize;
 
+use crate::callers::Callers;
 use crate::config::Config;
 use crate::discovery::Tree;
 use crate::index::{Index, Parsed};
-use crate::{const_param, dead_code, discovery, git, guide, one_impl, pass_through};
+use crate::{call_context, const_param, dead_code, discovery, git, guide, one_impl, pass_through};
 
 const ABOUT: &str = "Finds Python abstractions that have not earned their keep.";
 
@@ -88,6 +89,7 @@ pub enum Finding {
     ConstParam(const_param::Finding),
     PassThrough(pass_through::Finding),
     DeadCode(dead_code::Finding),
+    CallContext(call_context::Finding),
 }
 
 impl Finding {
@@ -97,6 +99,7 @@ impl Finding {
             Self::ConstParam(finding) => (&finding.path, finding.line),
             Self::PassThrough(finding) => (&finding.path, finding.line),
             Self::DeadCode(finding) => (&finding.path, finding.line),
+            Self::CallContext(finding) => (&finding.path, finding.line),
         }
     }
 
@@ -107,6 +110,7 @@ impl Finding {
             Self::ConstParam(f) => (f.check, &f.path, &f.name, &f.param),
             Self::PassThrough(f) => (f.check, &f.path, &f.name, ""),
             Self::DeadCode(f) => (f.check, &f.path, &f.name, ""),
+            Self::CallContext(f) => (f.check, &f.path, &f.name, ""),
         }
     }
 }
@@ -117,15 +121,22 @@ fn run_checks(index: &Index, config: &Config, tree: &Tree) -> Vec<Finding> {
     if config.enabled(one_impl::ID) {
         findings.extend(one_impl::run(index, config).into_iter().map(Finding::OneImpl));
     }
+    let callers = Callers::new(index);
     if config.enabled(const_param::ID) {
-        findings.extend(const_param::run(index, config).into_iter().map(Finding::ConstParam));
+        findings.extend(const_param::run(&callers, config).into_iter().map(Finding::ConstParam));
     }
     if config.enabled(pass_through::ID) {
-        let found = pass_through::run(index, config, &tree.entry_points);
+        let found = pass_through::run(&callers, config, &tree.entry_points);
         findings.extend(found.into_iter().map(Finding::PassThrough));
     }
     if config.enabled(dead_code::ID) {
-        findings.extend(dead_code::run(index, config, tree).into_iter().map(Finding::DeadCode));
+        findings.extend(dead_code::run(&callers, config, tree).into_iter().map(Finding::DeadCode));
+    }
+    let ids = [call_context::UNUSED_RESULT, call_context::NEEDLESS_ASYNC];
+    if ids.iter().any(|id| config.enabled(id)) {
+        let found = call_context::run(&callers, config, tree);
+        let enabled = found.into_iter().filter(|finding| config.enabled(finding.check));
+        findings.extend(enabled.map(Finding::CallContext));
     }
     findings.sort_by(|a, b| a.path_line().cmp(&b.path_line()));
     findings
@@ -211,6 +222,7 @@ fn write_text(out: &mut impl Write, group: &[Finding]) -> Result<()> {
         [Finding::OneImpl(finding)] => write_one_impl(out, finding),
         [Finding::PassThrough(finding)] => write_pass_through(out, finding),
         [Finding::DeadCode(finding)] => write_dead_code(out, finding),
+        [Finding::CallContext(finding)] => write_call_context(out, finding),
         _ => write_const_param(out, &params),
     }
 }
@@ -236,6 +248,21 @@ fn write_dead_code(out: &mut impl Write, f: &dead_code::Finding) -> Result<()> {
     if !f.tests.is_empty() {
         writeln!(out, "  tests: {}", f.tests.join(", "))?;
     }
+    if f.keep_missing_reason {
+        writeln!(out, "  keep: missing reason")?;
+    }
+    writeln!(out, "  suggest: {}", f.suggest)?;
+    Ok(())
+}
+
+fn write_call_context(out: &mut impl Write, f: &call_context::Finding) -> Result<()> {
+    writeln!(out, "{} {}:{} {}", f.check, f.path, f.line, f.name)?;
+    let evidence = if f.check == call_context::UNUSED_RESULT {
+        "result used at 0"
+    } else {
+        "awaits in body: 0"
+    };
+    writeln!(out, "  calls: {} prod, {} test; {evidence}", f.calls.prod, f.calls.test)?;
     if f.keep_missing_reason {
         writeln!(out, "  keep: missing reason")?;
     }

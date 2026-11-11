@@ -439,6 +439,7 @@ fn extract(
         scope: 0,
         under_main: false,
         forward: None,
+        current: None,
     };
     walker.visit(root, "", true);
     walker.info.mentions = mentions(root, source);
@@ -460,7 +461,7 @@ fn extract(
 /// One file's walk. Positions in `classes` and `functions` are file-local
 /// until `Index::add` shifts them.
 pub(crate) struct Walker<'s> {
-    source: &'s str,
+    pub(crate) source: &'s str,
     lines: Vec<&'s str>,
     /// The package relative imports start from; `None` if the file has no module name.
     package: Option<String>,
@@ -482,6 +483,8 @@ pub(crate) struct Walker<'s> {
     /// The node id of the call that makes up a function's whole body, and
     /// that function: [`crate::calls::Body::forward`] is set when it is recorded.
     pub(crate) forward: Option<(usize, FnId)>,
+    /// The function whose body is being walked.
+    pub(crate) current: Option<FnId>,
 }
 
 impl<'s> Walker<'s> {
@@ -503,6 +506,7 @@ impl<'s> Walker<'s> {
                 return self.assignment(node, prefix, top);
             }
             "for_statement" | "for_in_clause" => {
+                self.flow(node);
                 if let Some(left) = node.child_by_field_name("left") {
                     self.bind_targets(left, prefix, top, false);
                 }
@@ -551,6 +555,7 @@ impl<'s> Walker<'s> {
             }
             // A registry entry, `{"csv": CsvExporter}`: the key names a symbol
             // looked up at runtime. `{"done": 3}` is data, not a lookup.
+            "return_statement" | "await" | "yield" | "with_statement" => self.flow(node),
             "pair" => {
                 let is_reference = node.child_by_field_name("value").is_some_and(|value| {
                     matches!(value.kind(), "identifier" | "attribute" | "lambda")

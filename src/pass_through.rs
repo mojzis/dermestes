@@ -13,7 +13,7 @@ use crate::callers::{listed, Callers, Calls, Resolved, Site};
 use crate::calls::{Arg, Callee, FnId, FnKind, Function, Value, ValueKind};
 use crate::config::Config;
 use crate::const_param::bind;
-use crate::index::{Index, Keep};
+use crate::index::Keep;
 
 pub const ID: &str = "pass-through";
 
@@ -51,8 +51,8 @@ pub struct Finding {
 
 /// Run the check over the whole index. `entry_points` are `[project.scripts]`
 /// values, whose functions are called from outside. Sorted by path, then line.
-pub fn run(index: &Index, config: &Config, entry_points: &[String]) -> Vec<Finding> {
-    let callers = Callers::new(index);
+pub fn run(callers: &Callers<'_>, config: &Config, entry_points: &[String]) -> Vec<Finding> {
+    let index = callers.index;
     let entry: HashSet<FnId> =
         entry_points.iter().filter_map(|value| callers.entry_point(value)).collect();
     let mut findings: Vec<Finding> = (0..index.functions.len())

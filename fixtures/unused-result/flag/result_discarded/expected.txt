@@ -1,0 +1,3 @@
+unused-result sync.py:1 push_rows
+  calls: 2 prod, 1 test; result used at 0
+  suggest: return nothing; drop the return value at lines 3, 7

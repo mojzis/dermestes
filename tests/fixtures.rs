@@ -44,17 +44,24 @@ fn copy_dir(from: &Path, to: &Path) {
     }
 }
 
-/// Turn `dead-code` off in a copied case of another check. Those cases are
-/// small programs whose entry points nothing calls, so it would flag them all.
-fn disable_dead_code(dir: &Path) {
+/// Checks that fire on almost any small program: a fixture's entry points are
+/// never called, and its helpers' results are rarely used.
+const BROAD: [&str; 3] = ["dead-code", "unused-result", "needless-async"];
+
+/// Turn the [`BROAD`] checks off in a copied case of another check, so each
+/// case shows its own check's findings only.
+fn disable_broad(dir: &Path, own: &str) {
+    let ids: Vec<String> =
+        BROAD.iter().filter(|id| **id != own).map(|id| format!("\"{id}\"")).collect();
+    let ids = ids.join(", ");
     let path = dir.join("pyproject.toml");
     let text = std::fs::read_to_string(&path).unwrap_or_default();
     let text = if text.contains("disable = [") {
-        text.replacen("disable = [", "disable = [\"dead-code\", ", 1)
+        text.replacen("disable = [", &format!("disable = [{ids}, "), 1)
     } else if text.contains("[tool.dermestes]") {
-        text.replacen("[tool.dermestes]", "[tool.dermestes]\ndisable = [\"dead-code\"]", 1)
+        text.replacen("[tool.dermestes]", &format!("[tool.dermestes]\ndisable = [{ids}]"), 1)
     } else {
-        format!("{text}\n[tool.dermestes]\ndisable = [\"dead-code\"]\n")
+        format!("{text}\n[tool.dermestes]\ndisable = [{ids}]\n")
     };
     std::fs::write(&path, text).expect("write pyproject.toml");
 }
@@ -65,9 +72,7 @@ fn run_all(case: &Path) -> (Option<i32>, String, String) {
     let tmp = tempfile::tempdir().expect("tempdir");
     copy_dir(case, tmp.path());
     let check = case.parent().and_then(Path::parent).and_then(Path::file_name);
-    if check.is_some_and(|check| check != "dead-code") {
-        disable_dead_code(tmp.path());
-    }
+    disable_broad(tmp.path(), &check.expect("fixtures/<check>/<kind>/<case>").to_string_lossy());
     let output = Command::new(env!("CARGO_BIN_EXE_dermestes"))
         .arg("--all")
         .current_dir(tmp.path())

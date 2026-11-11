@@ -53,7 +53,8 @@ pub struct Callers<'a> {
 }
 
 impl<'a> Callers<'a> {
-    pub(crate) fn new(index: &'a Index) -> Self {
+    /// Resolve every call in `index` once; the caller-counting checks share the result.
+    pub fn new(index: &'a Index) -> Self {
         let resolver = Resolver::new(index);
         let mut protocols = HashSet::new();
         let bases = index

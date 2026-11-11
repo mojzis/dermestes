@@ -12,7 +12,7 @@ use crate::branches::{Cond, Test, When};
 use crate::callers::{listed, Callers, Calls, Site};
 use crate::calls::{Arg, Call, FnId, FnKind, Function, Param, ParamKind, Value, ValueKind};
 use crate::config::Config;
-use crate::index::{Index, Keep};
+use crate::index::Keep;
 use crate::resolve::Target;
 
 pub const ID: &str = "const-param";
@@ -53,8 +53,8 @@ pub struct Span {
 }
 
 /// Run the check over the whole index. Findings are sorted by path, then line.
-pub fn run(index: &Index, config: &Config) -> Vec<Finding> {
-    let check = Callers::new(index);
+pub fn run(check: &Callers<'_>, config: &Config) -> Vec<Finding> {
+    let index = check.index;
     let mut findings: Vec<Finding> = (0..index.functions.len())
         .filter(|&id| !check.exempt(id, config))
         .flat_map(|id| check.findings(id))

@@ -158,13 +158,18 @@ Definitions:
   value-returning `return`, at least one resolved production call and no
   unresolved call of its name, where every resolved call, production and test,
   is a bare expression statement (or a bare `await f(...)` statement). Silent
-  when every return is `self`/`cls` (fluent), for generators, and when any test
-  uses the result. Suggestion: return nothing.
+  when a return is `self`/`cls` (fluent), for generators, and when any test
+  uses the result. Every returned value must be a name, an attribute, a literal
+  or a tuple of those: `return log.debug(...)` passes on whatever the callee
+  gives, and dropping that "value" would drop the call. Like `dead-code`, a
+  public name is flagged only outside a `py.typed` package, and entry points
+  are exempt. Suggestion: return nothing.
 - **needless-async** (amendment 6; phase 6 stage B). An `async def` whose body has
   no `await`, `async for`, `async with` or `yield`, that is neither an override
   nor overridden, with at least one resolved production call, no unresolved
   call, and every resolved call directly awaited (`await f(...)`; not
-  `gather(f())`, `create_task(f())` or an assignment of the coroutine).
+  `gather(f())`, `create_task(f())` or an assignment of the coroutine). The
+  typed-package and entry-point rules of `unused-result` apply.
   Suggestion: drop `async` and the `await` at each site.
 - **fn-class** (amendment 6; phase 6 stage C). A class with no bases, no
   decorator, no class-level assignments and exactly `__init__` plus one
@@ -372,3 +377,20 @@ black; the `~/git/pp` corpus was not available where this ran.
 - **Decision: the pair guard.** A variadic is silent when the function's other
   variadic is populated. It removes the 4 traps, the justified row and both
   debatable rows, and none of the 7 candidates: 7 of 7 remain.
+
+Gate B (2026-11-11), on the same ten clones.
+
+- **`unused-result`**: as first written, 29 rows. 13 of them returned a call or a
+  comprehension (`return logger.debug(...)`, `return [wrap(h) for h in hs]`),
+  where "drop the return value" would drop a side effect. **Decision:** every
+  returned value must be a plain name, attribute, literal or tuple. That leaves
+  16 rows: 16 candidates, 0 traps.
+- **`needless-async`**: 2 rows, both candidates (feast `_get_connection_pool_async`,
+  scrapy `_process_callback_output`). Too few to call a precision; it ships on
+  0 traps and its narrow definition.
+- Both checks skip public names in a `py.typed` package and entry points, as
+  `dead-code` does: a result the repo ignores may be read by an outside caller.
+- The resolved-call index is now built once per run and shared by the
+  caller-counting checks; `--all` on dlt, feast and litestar takes what it did
+  before phase 6 (1.01 s, 0.79 s, 0.30 s against 1.07 s, 0.79 s, 0.28 s).
+- The four older checks reported the same findings before and after.

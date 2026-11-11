@@ -38,8 +38,8 @@ pub struct Finding {
 
 /// Run the check over the whole index. `tree` gives the entry points, the
 /// typed packages and the words of non-Python files. Sorted by path, then line.
-pub fn run(index: &Index, config: &Config, tree: &Tree) -> Vec<Finding> {
-    let callers = Callers::new(index);
+pub fn run(callers: &Callers<'_>, config: &Config, tree: &Tree) -> Vec<Finding> {
+    let index = callers.index;
     let entry: HashSet<FnId> =
         tree.entry_points.iter().filter_map(|value| callers.entry_point(value)).collect();
     let candidates: Vec<FnId> = (0..index.functions.len())
