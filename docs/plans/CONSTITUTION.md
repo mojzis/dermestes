@@ -69,7 +69,9 @@ Definitions:
     with at least one resolved production call, where no call passes a surplus
     positional or keyword argument, no call uses a splat, and no call of that name
     is unresolved. A name starting with `_` (`**_`) is a deliberate sink and silent.
-    A test call that populates it counts as variation. Suggestion: drop it, and the
+    A test call that populates it counts as variation. When the function's other
+    variadic is populated, both stay: `*args, **kwargs` forwarded together is one
+    idiom, and a `ParamSpec` pair cannot be split. Suggestion: drop it, and the
     place the body forwards it when forwarding is its only use.
   - **Dead branch.** Never a finding of its own: evidence on a parameter already
     reported with a literal value. Every `if`, `elif`, conditional expression or
@@ -367,3 +369,6 @@ black; the `~/git/pp` corpus was not available where this ran.
 - **Dead branch**: 20 parameters carry spans. Every span is dead under its
   constant; 3 are deprecation warnings kept for callers outside the repo.
 - The four older checks reported the same findings before and after.
+- **Decision: the pair guard.** A variadic is silent when the function's other
+  variadic is populated. It removes the 4 traps, the justified row and both
+  debatable rows, and none of the 7 candidates: 7 of 7 remain.

@@ -194,15 +194,19 @@ impl Callers<'_> {
 
     /// A `*args`/`**kwargs` no site adds to, as `**kwargs` and its suggestion.
     /// `**_` is a deliberate sink, and any unresolved call of the name may
-    /// populate it.
+    /// populate it. When the function's other variadic is populated the two
+    /// are a pair (`f(*args, **kwargs)`, `P.args`/`P.kwargs`): neither goes alone.
     fn never_populated(
         &self,
         function: &Function,
         param: &Param,
         bound: &[HashMap<&str, &Value>],
     ) -> Option<(String, String)> {
+        let variadic = |p: &&Param| matches!(p.kind, ParamKind::VarArgs | ParamKind::VarKeyword);
         let populated = param.name.starts_with('_')
-            || bound.iter().any(|binding| binding.contains_key(param.name.as_str()))
+            || function.params.iter().filter(variadic).any(|either| {
+                bound.iter().any(|binding| binding.contains_key(either.name.as_str()))
+            })
             || self.possible.get(function.name.as_str()).is_some_and(|calls| !calls.is_empty());
         let stars = if param.kind == ParamKind::VarArgs { "*" } else { "**" };
         let name = format!("{stars}{}", param.name);
