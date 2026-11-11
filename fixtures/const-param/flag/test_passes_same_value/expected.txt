@@ -1,4 +1,4 @@
 const-param extract.py:1 extract_content
   calls: 1 prod, 1 test
-  debug: default False never overridden, passed explicitly at 1 site
-  suggest: drop debug (and the argument at tests/test_extract.py:5), use False inline
+  debug: default False never overridden, passed explicitly at 1 site; dead: lines 2-3
+  suggest: drop debug (and the argument at tests/test_extract.py:5), use False inline, delete lines 2-3 (2 lines)

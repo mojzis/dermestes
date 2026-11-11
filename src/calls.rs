@@ -8,6 +8,7 @@ use std::collections::HashMap;
 
 use tree_sitter::Node;
 
+use crate::branches::Branch;
 use crate::index::{dotted, join, Binding, ClassId, Keep, Walker};
 
 /// Position of a function in [`crate::index::Index::functions`].
@@ -43,6 +44,8 @@ pub struct Param {
     pub name: String,
     pub kind: ParamKind,
     pub default: Option<Value>,
+    /// A variadic whose only uses in the body are `*p`/`**p` arguments: their lines.
+    pub forwarded: Vec<usize>,
 }
 
 /// A `def`, anywhere in a file.
@@ -68,6 +71,8 @@ pub struct Function {
     pub is_async: bool,
     pub keep: Keep,
     pub body: Body,
+    /// Branches that test one parameter against a literal.
+    pub branches: Vec<Branch>,
 }
 
 /// A function's body, excluding its docstring, as `pass-through` reads it.
@@ -207,9 +212,15 @@ impl Walker<'_> {
             Some(_) if classmethod => FnKind::ClassMethod,
             Some(_) => FnKind::Method,
         };
-        let params = node
+        let mut params = node
             .child_by_field_name("parameters")
             .map_or_else(Vec::new, |parameters| self.params(parameters, prefix, top));
+        // Nothing to read in the body when the receiver is the only parameter.
+        let own = params.len() > usize::from(matches!(kind, FnKind::Method | FnKind::ClassMethod));
+        let branches = node
+            .child_by_field_name("body")
+            .filter(|_| own)
+            .map_or_else(Vec::new, |body| self.shapes(body, &mut params));
 
         let id = self.functions.len();
         let (body, forward) = self.body(node);
@@ -227,6 +238,7 @@ impl Walker<'_> {
             is_async: node.child(0).is_some_and(|first| first.kind() == "async"),
             keep: self.header_keep(node),
             body,
+            branches,
         });
         self.forward = forward.map(|call| (call, id));
         if top {
@@ -354,6 +366,7 @@ impl Walker<'_> {
                 name: self.text(name_node).to_owned(),
                 kind,
                 default: default.map(|default| self.value(default)),
+                forwarded: Vec::new(),
             });
         }
         params
@@ -538,7 +551,7 @@ impl Walker<'_> {
         Value { text, line: node.start_position().row + 1, kind }
     }
 
-    fn literal_key(&self, node: Node<'_>) -> Option<String> {
+    pub(crate) fn literal_key(&self, node: Node<'_>) -> Option<String> {
         match node.kind() {
             "integer" | "float" | "true" | "false" | "none" => Some(self.text(node).to_owned()),
             "string" => {

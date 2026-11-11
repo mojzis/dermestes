@@ -188,3 +188,49 @@ fn deleting_the_last_mention_reports_dead_code() {
     assert_eq!(code, Some(1), "the edit left _total unmentioned: {stdout}");
     assert!(stdout.starts_with("dead-code calc.py:1 _total\n"), "reported at head: {stdout}");
 }
+
+/// A dead branch is evidence on a `const-param` finding, not part of its
+/// identity: adding one to a parameter that was already constant is not new.
+#[test]
+fn a_newly_dead_branch_is_not_a_new_finding() {
+    let tmp = TempDir::new().expect("temp dir");
+    git(tmp.path(), &["init", "-q"]);
+    let before =
+        "def load(path, strict=False):\n    return path\n\n\ndef a():\n    return load(\"a\")\n";
+    std::fs::write(tmp.path().join("m.py"), before).expect("write");
+    git(tmp.path(), &["add", "."]);
+    git(tmp.path(), &["commit", "-q", "-m", "constant strict"]);
+
+    let after = before.replace(
+        "    return path\n",
+        "    if strict:\n        raise ValueError(path)\n    return path\n",
+    );
+    std::fs::write(tmp.path().join("m.py"), after).expect("write");
+    assert_eq!(dermestes(tmp.path(), &[]), (Some(0), String::new()), "same finding, new text");
+    let (_, all) = dermestes(tmp.path(), &["--all"]);
+    assert!(all.contains("strict: default False never overridden; dead: lines 2-3"), "{all}");
+}
+
+/// A parameter that arrives constant is reported with the branch it makes dead.
+#[test]
+fn a_new_constant_parameter_reports_its_dead_branch() {
+    let tmp = TempDir::new().expect("temp dir");
+    git(tmp.path(), &["init", "-q"]);
+    let before = "def load(path):\n    return path\n\n\ndef a():\n    return load(\"a\")\n";
+    std::fs::write(tmp.path().join("m.py"), before).expect("write");
+    git(tmp.path(), &["add", "."]);
+    git(tmp.path(), &["commit", "-q", "-m", "no strict"]);
+
+    let after = before.replace(
+        "def load(path):\n",
+        "def load(path, strict=False):\n    if strict:\n        raise ValueError(path)\n",
+    );
+    std::fs::write(tmp.path().join("m.py"), after).expect("write");
+    let (code, stdout) = dermestes(tmp.path(), &[]);
+    assert_eq!(code, Some(1), "strict is new and constant: {stdout}");
+    assert!(
+        stdout.contains("  strict: default False never overridden; dead: lines 2-3\n"),
+        "{stdout}"
+    );
+    assert!(!stdout.contains("path:"), "path was already constant at base: {stdout}");
+}

@@ -1,4 +1,4 @@
 const-param ui.py:1 render
   calls: 2 prod, 0 test
-  border: default True never overridden, passed explicitly at 1 site
-  suggest: drop border (and the argument at ui.py:6), use True inline
+  border: default True never overridden, passed explicitly at 1 site; dead: conditional at line 2
+  suggest: drop border (and the argument at ui.py:6), use True inline, simplify the conditional at line 2

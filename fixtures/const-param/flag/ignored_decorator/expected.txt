@@ -1,4 +1,4 @@
 const-param m.py:5 load
   calls: 1 prod, 0 test
-  strict: default True never overridden
-  suggest: drop strict, use True inline
+  strict: default True never overridden; dead: conditional at line 6
+  suggest: drop strict, use True inline, simplify the conditional at line 6

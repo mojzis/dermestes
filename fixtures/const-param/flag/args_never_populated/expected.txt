@@ -1,0 +1,4 @@
+const-param log.py:1 log
+  calls: 2 prod, 0 test
+  *args: never populated
+  suggest: drop *args

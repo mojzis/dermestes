@@ -1,0 +1,4 @@
+const-param rows.py:1 load
+  calls: 2 prod, 0 test
+  strict: default False never overridden
+  suggest: drop strict, use False inline

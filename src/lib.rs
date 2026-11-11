@@ -2,10 +2,11 @@
 //!
 //! The binary is a thin shell over [`cli`]. [`guide`] serves the agent-facing
 //! pages from `docs/src/guide/`. A run goes [`config`] → [`discovery`] →
-//! [`index`] (with [`calls`]) → [`one_impl`], [`const_param`], [`pass_through`]
+//! [`index`] (with [`calls`] and [`branches`]) → [`one_impl`], [`const_param`], [`pass_through`]
 //! and [`dead_code`] (through [`resolve`] and [`callers`]), then, in diff mode, again on the base side [`git`] rebuilds.
 //! This library exists so tests can reach the modules; it is not a public API.
 
+pub mod branches;
 pub mod callers;
 pub mod calls;
 pub mod cli;

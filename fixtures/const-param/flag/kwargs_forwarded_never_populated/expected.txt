@@ -1,0 +1,4 @@
+const-param client.py:4 fetch
+  calls: 2 prod, 0 test
+  **kwargs: never populated
+  suggest: drop **kwargs (and the **kwargs forwarded at line 5)

@@ -257,9 +257,14 @@ fn write_const_param(out: &mut impl Write, group: &[&const_param::Finding]) -> R
             ("never-overridden", n) => {
                 format!("default {} never overridden, passed explicitly at {n} {sites}", f.value)
             }
+            ("never-populated", _) => "never populated".to_owned(),
             _ => format!("always {}", f.value),
         };
-        writeln!(out, "  {}: {evidence}", f.param)?;
+        let dead = match &f.dead_spans[..] {
+            [] => String::new(),
+            spans => format!("; dead: {}", const_param::spans_text(spans)),
+        };
+        writeln!(out, "  {}: {evidence}{dead}", f.param)?;
     }
     if f.keep_missing_reason {
         writeln!(out, "  keep: missing reason")?;

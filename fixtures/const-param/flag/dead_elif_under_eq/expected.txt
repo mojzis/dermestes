@@ -1,0 +1,4 @@
+const-param render.py:1 render
+  calls: 2 prod, 0 test
+  mode: default "html" never overridden; dead: lines 4-5
+  suggest: drop mode, use "html" inline, delete lines 4-5 (2 lines)

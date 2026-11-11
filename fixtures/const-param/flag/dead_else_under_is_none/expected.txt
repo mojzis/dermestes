@@ -1,0 +1,4 @@
+const-param db.py:1 connect
+  calls: 2 prod, 0 test
+  pool: default None never overridden; dead: lines 4-6
+  suggest: drop pool, use None inline, delete lines 4-6 (3 lines)

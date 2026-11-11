@@ -1,4 +1,4 @@
 const-param log.py:2 Printer._emit
   calls: 1 prod, 0 test
-  debug: default False never overridden
-  suggest: drop debug, use False inline
+  debug: default False never overridden; dead: lines 3-4
+  suggest: drop debug, use False inline, delete lines 3-4 (2 lines)
