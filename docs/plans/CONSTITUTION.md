@@ -355,3 +355,15 @@ built in three stages; each stage's corpus numbers are added here at its gate.
 - **"Candidates for later" shrinks.** `**kwargs` never populated and the class with
   `__init__` plus one method are built here. Wrap-and-reraise handlers are dropped:
   ruff `TRY203` and pylint `W0706` cover the plain form. Mirrored models stay.
+
+Gate A (2026-11-11), before any guard decision. Labelled on fresh clones of dlt,
+feast (`sdk/python`), litestar, httpx, rich, poetry, scrapy, celery, flask and
+black; the `~/git/pp` corpus was not available where this ran.
+
+- **Variadic never populated**: 14 rows. 7 candidates, 2 debatable, 1 justified,
+  4 traps. All four traps are scrapy `ParamSpec` pairs (`*args: P.args,
+  **kwargs: P.kwargs`), where one cannot be dropped without the other; the
+  justified row and both debatable rows are the same pair, untyped.
+- **Dead branch**: 20 parameters carry spans. Every span is dead under its
+  constant; 3 are deprecation warnings kept for callers outside the repo.
+- The four older checks reported the same findings before and after.
