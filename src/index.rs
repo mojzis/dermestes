@@ -47,6 +47,11 @@ pub struct Class {
     /// Dotted through enclosing classes and functions: `make.LocalStep`.
     pub qualname: String,
     pub line: usize,
+    /// The last line of its body.
+    pub end_line: usize,
+    /// Dotted names of its decorators (`dataclasses.dataclass`; empty when
+    /// one is not a name).
+    pub decorators: Vec<String>,
     /// Defined at module level, so other files can import it.
     pub top_level: bool,
     /// Each base as dotted parts; empty when it is not a dotted name (a call,
@@ -663,6 +668,20 @@ impl<'s> Walker<'s> {
             }
         }
 
+        let mut decorators = Vec::new();
+        if let Some(parent) = node.parent().filter(|p| p.kind() == "decorated_definition") {
+            let mut cursor = parent.walk();
+            for decorator in parent.named_children(&mut cursor).filter(|c| c.kind() == "decorator")
+            {
+                let expr = decorator.named_child(0).map(|expr| match expr.kind() {
+                    "call" => expr.child_by_field_name("function").unwrap_or(expr),
+                    _ => expr,
+                });
+                let parts = expr.and_then(|expr| dotted(self, expr));
+                decorators.push(parts.map(|parts| parts.join(".")).unwrap_or_default());
+            }
+        }
+
         let mut methods = BTreeSet::new();
         let mut abstract_methods = BTreeSet::new();
         if let Some(body) = node.child_by_field_name("body") {
@@ -705,6 +724,8 @@ impl<'s> Walker<'s> {
             name: name.to_owned(),
             qualname: qualname.clone(),
             line: line + 1,
+            end_line: node.end_position().row + 1,
+            decorators,
             top_level: top,
             bases,
             metaclass,

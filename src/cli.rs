@@ -243,7 +243,14 @@ fn write_pass_through(out: &mut impl Write, finding: &pass_through::Finding) -> 
 }
 
 fn write_dead_code(out: &mut impl Write, f: &dead_code::Finding) -> Result<()> {
-    writeln!(out, "{} {}:{} {}", f.check, f.path, f.line, f.name)?;
+    let family = match f.defs.len() {
+        0 => String::new(),
+        n => format!(" (family of {n})"),
+    };
+    writeln!(out, "{} {}:{} {}{family}", f.check, f.path, f.line, f.name)?;
+    if !f.defs.is_empty() {
+        writeln!(out, "  defs: {}", f.defs.join(", "))?;
+    }
     writeln!(out, "  calls: {} prod, {} test", f.calls.prod, f.calls.test)?;
     if !f.tests.is_empty() {
         writeln!(out, "  tests: {}", f.tests.join(", "))?;

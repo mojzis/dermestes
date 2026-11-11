@@ -1,0 +1,3 @@
+dead-code models.py:1 _LegacyRow
+  calls: 0 prod, 0 test
+  suggest: delete _LegacyRow

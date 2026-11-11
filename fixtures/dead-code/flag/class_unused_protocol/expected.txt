@@ -1,0 +1,3 @@
+dead-code ports.py:5 SupportsFlush
+  calls: 0 prod, 0 test
+  suggest: delete SupportsFlush

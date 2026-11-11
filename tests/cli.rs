@@ -97,12 +97,14 @@ fn diff_mode_outside_a_git_repository_exits_2() {
 }
 
 /// Run from a subdirectory, the whole project is still indexed: the second
-/// implementation outside the cwd keeps the ABC silent.
+/// implementation outside the cwd keeps the ABC silent. Nothing in this tree
+/// uses the classes, so `dead-code` is off: it would rightly report them.
 #[test]
 fn a_subdirectory_run_indexes_the_whole_project() {
     let tmp = TempDir::new().expect("temp dir");
     let root = tmp.path();
-    std::fs::write(root.join("pyproject.toml"), "[project]\nname = \"app\"\n").expect("write");
+    let pyproject = "[project]\nname = \"app\"\n\n[tool.dermestes]\ndisable = [\"dead-code\"]\n";
+    std::fs::write(root.join("pyproject.toml"), pyproject).expect("write");
     for dir in ["app/core", "app/plugins"] {
         std::fs::create_dir_all(root.join(dir)).expect("mkdir");
     }

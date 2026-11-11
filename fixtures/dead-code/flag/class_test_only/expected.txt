@@ -1,0 +1,4 @@
+dead-code models.py:5 _CostRow
+  calls: 0 prod, 2 test
+  tests: tests/test_models.py:1, tests/test_models.py:5
+  suggest: delete _CostRow and the tests that only exercise it, or move it into tests/test_models.py if they use it as setup

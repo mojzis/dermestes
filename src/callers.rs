@@ -38,10 +38,12 @@ pub struct Callers<'a> {
     resolver: Resolver<'a>,
     /// Each class's bases in order; `None` for one we cannot follow.
     /// `object`, `ABC`, `Protocol` and `Generic` are left out.
-    bases: Vec<Vec<Option<ClassId>>>,
+    pub(crate) bases: Vec<Vec<Option<ClassId>>>,
+    /// Each class's direct repository subclasses.
+    pub(crate) children: Vec<Vec<ClassId>>,
     protocols: HashSet<ClassId>,
     /// Methods by class and name; `None` when the name is defined twice.
-    methods: HashMap<(ClassId, &'a str), Option<FnId>>,
+    pub(crate) methods: HashMap<(ClassId, &'a str), Option<FnId>>,
     /// Methods some subclass redefines: `self.m()` may land on the override.
     overridden: HashSet<FnId>,
     reexported: HashSet<FnId>,
@@ -57,7 +59,7 @@ impl<'a> Callers<'a> {
     pub fn new(index: &'a Index) -> Self {
         let resolver = Resolver::new(index);
         let mut protocols = HashSet::new();
-        let bases = index
+        let bases: Vec<Vec<Option<ClassId>>> = index
             .classes
             .iter()
             .enumerate()
@@ -76,6 +78,12 @@ impl<'a> Callers<'a> {
                 bases
             })
             .collect();
+        let mut children = vec![Vec::new(); bases.len()];
+        for (id, parents) in bases.iter().enumerate() {
+            for &parent in parents.iter().flatten() {
+                children[parent].push(id);
+            }
+        }
         let mut methods = HashMap::new();
         for (id, function) in index.functions.iter().enumerate() {
             if let Some(class) = function.class {
@@ -99,6 +107,7 @@ impl<'a> Callers<'a> {
             index,
             resolver,
             bases,
+            children,
             protocols,
             methods,
             overridden: HashSet::new(),
@@ -157,7 +166,7 @@ impl<'a> Callers<'a> {
     }
 
     /// Every resolved class above `class`.
-    fn ancestors(&self, class: ClassId) -> Vec<ClassId> {
+    pub(crate) fn ancestors(&self, class: ClassId) -> Vec<ClassId> {
         let mut seen = HashSet::from([class]);
         let mut stack = vec![class];
         let mut out = Vec::new();
@@ -283,6 +292,38 @@ impl<'a> Callers<'a> {
     /// Every guard of [`Self::exempt`] but [`Self::overrides`].
     pub(crate) fn guarded(&self, id: FnId, config: &Config) -> bool {
         let function = &self.index.functions[id];
+        self.guarded_alone(id, config)
+            || function.is_abstract
+            || self.overridden.contains(&id)
+            || function.class.is_some_and(|class| self.protocols.contains(&class))
+    }
+
+    /// `class` and every repository class below it.
+    pub(crate) fn family(&self, class: ClassId) -> Vec<ClassId> {
+        let mut seen = HashSet::from([class]);
+        let mut out = vec![class];
+        let mut next = 0;
+        while let Some(&current) = out.get(next) {
+            out.extend(self.children[current].iter().filter(|child| seen.insert(**child)));
+            next += 1;
+        }
+        out
+    }
+
+    /// A class whose hierarchy leaves the repository: an unfollowable base, or
+    /// any metaclass, on it, an ancestor or a descendant.
+    pub(crate) fn unresolved_hierarchy(&self, class: ClassId) -> bool {
+        let open = |id: &ClassId| {
+            self.bases[*id].iter().any(Option::is_none)
+                || self.index.classes[*id].metaclass.is_some()
+        };
+        self.family(class).iter().any(open) || self.ancestors(class).iter().any(open)
+    }
+
+    /// The guards of [`Self::guarded`] that hold for a method whatever its
+    /// place in a hierarchy: a dead method family is judged as a whole.
+    pub(crate) fn guarded_alone(&self, id: FnId, config: &Config) -> bool {
+        let function = &self.index.functions[id];
         let file = &self.index.files[function.file];
         let name = function.name.as_str();
         let is_dunder = name.starts_with("__") && name.ends_with("__");
@@ -290,7 +331,6 @@ impl<'a> Callers<'a> {
             || file.evidence_only
             || function.keep == Keep::WithReason
             || function.decorators.iter().any(|decorator| !ignored(decorator, config))
-            || function.is_abstract
             || (is_dunder && name != "__init__")
             || self.index.all_names.contains(name)
             || self.index.strings.contains(name)
@@ -301,10 +341,8 @@ impl<'a> Callers<'a> {
                     self.index.refs.contains(&self.index.classes[class].name)
                 }))
             || self.reexported.contains(&id)
-            || self.overridden.contains(&id)
             || self.dynamic.contains(&id)
             || matches_any(&file.relative, &config.public)
-            || function.class.is_some_and(|class| self.protocols.contains(&class))
     }
 
     /// The function a `[project.scripts]` or `[project.entry-points]` value

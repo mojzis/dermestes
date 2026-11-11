@@ -40,7 +40,6 @@ Each check has a stable id used in output, config and suppression markers.
 | 4 | `dead-code` | Function, method, class or method family no production code mentions: only tests (`test-only`) or nothing (`unused`) |
 | 6 | `unused-result` | Function that returns a value every call site discards |
 | 6 | `needless-async` | `async def` that awaits nothing and is awaited directly at every call site |
-| 6 | `fn-class` | Class with `__init__` plus one method, only ever used as `C(...).m(...)` |
 
 Definitions:
 
@@ -148,7 +147,9 @@ Definitions:
     an ancestor that defines `__init_subclass__`; any `.__subclasses__` use in the
     repo; a hierarchy that does not resolve inside the repo, ancestors and
     descendants both (ORM and Pydantic models, enums, exceptions); a public name in
-    a `py.typed` package.
+    a `py.typed` package; a class in a module no production file imports (a
+    script, a benchmark suite, a spider: its runner finds the class by itself).
+    A dead class is one finding; its methods are not reported again.
   - **Dead method family.** A method defined on a repo class and overridden in repo
     subclasses, in a resolved hierarchy, whose name occurs nowhere in production
     or tests outside the family's own bodies. This lifts the exemption for
@@ -171,13 +172,8 @@ Definitions:
   `gather(f())`, `create_task(f())` or an assignment of the coroutine). The
   typed-package and entry-point rules of `unused-result` apply.
   Suggestion: drop `async` and the `await` at each site.
-- **fn-class** (amendment 6; phase 6 stage C). A class with no bases, no
-  decorator, no class-level assignments and exactly `__init__` plus one
-  non-dunder method, whose name is never used as a value, where every
-  instantiation in the repo, tests included, is `C(args).m(args2)` in one
-  expression. Suggestion: make the method a function, delete the class.
 
-Candidates for later, only after the above prove useful on real repos: field-by-field mirrored models.
+Candidates for later, only after the above prove useful on real repos: field-by-field mirrored models; class with `__init__` plus one method (`fn-class`, tried in phase 6 and not built: see amendment 6, gate C).
 
 Each phase must be usable on its own and validated before the next begins, against
 the labelled corpus in `~/git/pp/dermestes/truth/` (precision on non-debatable rows, trap
@@ -358,9 +354,9 @@ built in three stages; each stage's corpus numbers are added here at its gate.
   branches a constant parameter makes dead (evidence on an existing finding, never
   a finding of its own).
 - **`dead-code` gains classes and method families.**
-- **`unused-result`, `needless-async` and `fn-class` are added.**
-- **"Candidates for later" shrinks.** `**kwargs` never populated and the class with
-  `__init__` plus one method are built here. Wrap-and-reraise handlers are dropped:
+- **`unused-result` and `needless-async` are added.** `fn-class` was specified with them and cut at gate C.
+- **"Candidates for later" shrinks.** `**kwargs` never populated is built here.
+  Wrap-and-reraise handlers are dropped:
   ruff `TRY203` and pylint `W0706` cover the plain form. Mirrored models stay.
 
 Gate A (2026-11-11), before any guard decision. Labelled on fresh clones of dlt,
@@ -393,4 +389,24 @@ Gate B (2026-11-11), on the same ten clones.
 - The resolved-call index is now built once per run and shared by the
   caller-counting checks; `--all` on dlt, feast and litestar takes what it did
   before phase 6 (1.01 s, 0.79 s, 0.30 s against 1.07 s, 0.79 s, 0.28 s).
+- The four older checks reported the same findings before and after.
+
+Gate C (2026-11-11), on the ten clones plus mitmproxy, locust, pre-commit, httpie
+and paperless-ngx.
+
+- **Dead class**: as first written, 9 rows on the ten: 1 candidate, 6 debatable
+  (celery keeps test support under `t/`, which is not a default test path) and
+  2 traps: rich `SegmentSuite`, which asv finds by itself, and scrapy
+  `extras/qpsclient.py` `QPSSpider`, run by `scrapy runspider`. **Decision:** a
+  class is silent when no production file imports its module. On fifteen repos
+  that leaves 3 rows: 2 candidates (celery `DummyContext`, mitmproxy
+  `_UnknownType`), 1 debatable, 0 traps. A thin sample: the guard is kept strict.
+- **Never-raised exceptions stay silent.** The unresolved-hierarchy guard was not
+  loosened: nothing in the corpus argued for it.
+- **Dead method family**: 1 row, a candidate (dlt `_ensure_native_conn`, a base
+  and one override nobody calls).
+- **`fn-class` is cut.** No row on fifteen repos. An independent AST count found
+  51 classes with the shape (`__init__` plus one method, no bases, no decorator,
+  no class state) and none used only as `C(...).m(...)`. A check with nothing to
+  find is speculative; it goes back to "candidates for later".
 - The four older checks reported the same findings before and after.
