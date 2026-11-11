@@ -18,7 +18,8 @@ rewrites it, and prints nothing when there is nothing to report.
 ### `dermestes` — over-abstraction
 
 - `dermestes` lists abstractions your change introduced that have a single
-  user (an ABC with one implementation, a function with one caller).
+  user, or none (an ABC with one implementation, a function with one caller,
+  a parameter nobody varies, a result nobody reads).
 - Each finding ends in a `suggest:` line. Apply it and run the tests, or keep
   it with `# dermestes: keep <reason>` in the definition's header.
 ```

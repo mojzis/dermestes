@@ -13,14 +13,16 @@ the code is laid out.
 | `guide.rs` | Serves `docs/src/guide/*.md` verbatim; picks a topic from `./pyproject.toml`. |
 | `config.rs` | `[tool.dermestes]` with the constitution's five keys; unknown keys are errors. Glob matching. |
 | `discovery.rs` | gitignore-aware walk for `.py` files and `pyproject.toml` directories (and their `[project.scripts]`/`[project.entry-points]` values), minus `exclude` (copied from biston); also the directories holding `py.typed` and the identifier words of every other text file under 2 MB. |
-| `index.rs` | Parallel tree-sitter parse, skipping generated files (`DO NOT EDIT` in the first 5 lines); per file: module names, import table, classes, `__all__`, dynamic-lookup strings and registry dict keys, private names spelled as strings in tests, `X.register`, and every line each name is mentioned on (identifiers and plain strings spelling it); files under the evidence-only defaults are marked; generated and unparseable files keep only their words. |
-| `calls.rs` | The call-site half of the same walk: functions, their parameters and body shape, calls and their arguments, function and class scopes, names used as values. |
+| `index.rs` | Parallel tree-sitter parse, skipping generated files (`DO NOT EDIT` in the first 5 lines); per file: module names, import table, classes (with their decorators and last line), `__all__`, dynamic-lookup strings and registry dict keys, private names spelled as strings in tests, `X.register`, and every line each name is mentioned on (identifiers and plain strings spelling it); files under the evidence-only defaults are marked; generated and unparseable files keep only their words. |
+| `calls.rs` | The call-site half of the same walk: functions, their parameters and body shape, their value returns and whether they await or yield; calls, their arguments and whether the result is dropped or awaited; function and class scopes, names used as values. |
+| `branches.rs` | One more walk per function body: the `if`/`elif`/`else`, `while` and conditional-expression arms that test a single parameter against a literal, the parameters the body rebinds, and where a variadic is only forwarded. Nothing is evaluated here. |
 | `resolve.rs` | Resolves a dotted expression to an indexed class, function or module constant, `ABC`/`ABCMeta`/`Protocol`/`object`, external, or unknown. |
 | `one_impl.rs` | The `one-impl` check and the `Finding` it produces. |
-| `callers.rs` | Resolves every call to a repository function (or keeps it by name as a possible call) and holds the precision guards the caller-counting checks share. |
-| `const_param.rs` | The `const-param` check: resolves every call, binds its arguments, compares each parameter's values across sites. |
+| `callers.rs` | Resolves every call to a repository function (or keeps it by name as a possible call), once per run, and holds what the function checks share: the precision guards, the class hierarchy both ways, and whether a hierarchy leaves the repository. |
+| `const_param.rs` | The `const-param` check: binds each call's arguments, a surplus one to the variadic that takes it, compares each parameter's values across sites, and evaluates the body's branches under a constant to list the arms that cannot run. |
 | `pass_through.rs` | The `pass-through` check: a body that is one forwarding call (`forward`), a private one-line helper with one production call (`single-use`), or a private helper renaming an outside call for two (`rename`). |
-| `dead_code.rs` | The `dead-code` check: a function whose name no production line outside its own body mentions; `test-only` when only tests do. |
+| `dead_code.rs` | The `dead-code` check: a function, a class, or a method with its overrides, whose name no production line outside its own bodies mentions; `test-only` when only tests do. |
+| `call_context.rs` | The `unused-result` and `needless-async` checks: what every resolved call site does with the call. |
 | `git.rs` | The only subprocess: `git diff --unified=0`, plus the working tree, rebuilds each changed file's base side. |
 
 ## A run
@@ -28,7 +30,8 @@ the code is laid out.
 `cli.rs` finds the project root (the nearest ancestor with `.git`, file or
 directory, else the nearest with `pyproject.toml`, else the cwd), loads the
 config there, reads the diff (unless `--all`), walks and indexes
-the **whole** repository (counting users needs every file), runs the checks,
+the **whole** repository (counting users needs every file), resolves every
+call once (`Callers`, shared by every check but `one-impl`), runs the checks,
 then, unless `--all`, runs the checks again on the base side and keeps only
 the findings new at head. The base side is the head's parsed files with each
 file the diff changed rebuilt from the diff (`git.rs`) and re-parsed; a

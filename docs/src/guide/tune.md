@@ -18,8 +18,8 @@ disable = ["one-impl"]
   there the explicit parameter is the lesson.
 - `test-paths`: files whose code is counted as tests, never as targets.
 - `ignore-decorators`: decorators that no longer exempt a function from
-  `const-param`, forward `pass-through` or `dead-code`, by dotted name or
-  suffix (`cache` covers `functools.cache`).
+  the function checks (all but `one-impl`), by dotted name or suffix (`cache`
+  covers `functools.cache`).
 - `public`: globs treated as public API and exempt.
 - `disable`: check ids to skip.
 
@@ -49,7 +49,8 @@ spells as a whole string (`"_load"`). Suppress a deliberate wrapper with
 name, a string spelling it, or the word in any non-`.py` file (a template,
 TOML, Markdown), `docs/` and `examples/` included. It also exempts entry
 points, Alembic `upgrade`/`downgrade`, `_repr_*_` hooks, and public names in a
-package that ships `py.typed`.
+package that ships `py.typed`; `unused-result` and `needless-async` share the
+entry-point and `py.typed` rules. `dermestes guide checks` has each check's misses.
 
 A library's public functions are called from outside the repository. List
 their modules in `public` rather than keeping each one.

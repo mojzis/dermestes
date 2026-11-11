@@ -1,4 +1,4 @@
-//! Agent-facing instructions for the three moments someone meets dermestes.
+//! Agent-facing instructions for the moments someone meets dermestes.
 //!
 //! The prose lives in `docs/src/guide/*.md` and is pulled in with
 //! [`include_str!`], so the documentation site and the CLI serve the same
@@ -14,6 +14,8 @@ use std::path::Path;
 const SETUP: &str = include_str!("../docs/src/guide/setup.md");
 /// Instructions for reading a finding and acting on it.
 const TRIAGE: &str = include_str!("../docs/src/guide/triage.md");
+/// Reference for each check's evidence lines and known misses.
+const CHECKS: &str = include_str!("../docs/src/guide/checks.md");
 /// Reference for the config keys and suppression.
 const TUNE: &str = include_str!("../docs/src/guide/tune.md");
 
@@ -24,6 +26,8 @@ pub enum Topic {
     Setup,
     /// dermestes reported findings; what to do with them.
     Triage,
+    /// What each check counts, and what it stays silent on.
+    Checks,
     /// Config keys and suppression.
     Tune,
 }
@@ -35,6 +39,7 @@ impl Topic {
         match self {
             Self::Setup => "setup",
             Self::Triage => "triage",
+            Self::Checks => "checks",
             Self::Tune => "tune",
         }
     }
@@ -45,6 +50,7 @@ impl Topic {
         match self {
             Self::Setup => SETUP,
             Self::Triage => TRIAGE,
+            Self::Checks => CHECKS,
             Self::Tune => TUNE,
         }
     }
@@ -80,8 +86,8 @@ pub fn is_configured(dir: &Path) -> bool {
     document.get("tool").and_then(|tool| tool.get("dermestes")).is_some()
 }
 
-/// The topic to print when the user named none. `tune` is a reference and
-/// is never auto-selected.
+/// The topic to print when the user named none. `checks` and `tune` are
+/// references and are never auto-selected.
 #[must_use]
 pub const fn auto_topic(configured: bool) -> Topic {
     if configured {

@@ -22,9 +22,10 @@ use crate::{call_context, const_param, dead_code, discovery, git, guide, one_imp
 const ABOUT: &str = "Finds Python abstractions that have not earned their keep.";
 
 const LONG_ABOUT: &str = "\
-dermestes reports abstractions with a single user — an ABC or Protocol with one \
-implementation, a function with one caller, a parameter nobody varies — as \
-deletion candidates, each with its evidence and a concrete simplification.
+dermestes reports abstractions with a single user, or none — an ABC or Protocol \
+with one implementation, a function with one caller, a parameter nobody varies, \
+a result nobody reads, a class nobody mentions — as deletion candidates, each \
+with its evidence and a concrete simplification.
 
 By default it reports only what the working tree's changes (staged plus \
 unstaged, against HEAD) introduced. The whole repository is always indexed, \
@@ -32,7 +33,7 @@ because counting users needs it.";
 
 const AFTER_LONG_HELP: &str = "\
 `dermestes guide` prints agent-facing instructions: `setup` until pyproject.toml \
-has a [tool.dermestes] table, `triage` after; `tune` only when asked for.
+has a [tool.dermestes] table, `triage` after; `checks` and `tune` only when asked for.
 
 Exit codes:
 
