@@ -376,6 +376,23 @@ fn is_identifier(name: &str) -> bool {
         && chars.all(|c| c.is_alphanumeric() || c == '_')
 }
 
+/// Whether the tree holds an error other than a type parameter default
+/// (PEP 696, `class Box[T = int]`). tree-sitter-python 0.25 has no rule for
+/// one, but it recovers inside the brackets: the `=` lands in an `ERROR` node
+/// directly under `type_parameter` and everything around it parses as usual.
+/// Known miss: it also lets `[T = ]` through, which Python rejects.
+fn has_syntax_error(node: Node<'_>) -> bool {
+    if !node.has_error() {
+        return false;
+    }
+    let mut cursor = node.walk();
+    if node.is_error() {
+        let defaults = node.children(&mut cursor).filter(|child| child.kind() == "=").count();
+        return defaults != 1 || node.parent().is_none_or(|p| p.kind() != "type_parameter");
+    }
+    node.is_missing() || node.children(&mut cursor).any(has_syntax_error)
+}
+
 /// Parse one file and pull out everything the index keeps. A generated file
 /// is `None`: it is fixed at its generator, not by hand.
 fn extract(
@@ -397,7 +414,7 @@ fn extract(
         .context("failed to set Python language")?;
     let tree = parser.parse(source, None).context("tree-sitter returned no tree")?;
     let root = tree.root_node();
-    if root.has_error() {
+    if has_syntax_error(root) {
         anyhow::bail!("{relative}: syntax error");
     }
 
@@ -944,5 +961,33 @@ mod tests {
     #[test]
     fn syntax_errors_are_reported_not_indexed() {
         assert!(extract("m.py", "class (:\n", &[], &Config::default()).is_err(), "skipped");
+    }
+
+    /// PEP 696 (Python 3.13). The grammar has no rule for a type parameter
+    /// default, but it recovers inside the brackets and the rest of the tree
+    /// is intact (issue #9).
+    #[test]
+    fn type_parameter_defaults_are_indexed() {
+        let src = "class Box[T = int]:\n    pass\n\n\n\
+                   def first[T: (int, str) = int, *Ts = *tuple[int, str], **P = [int, str]](\n    \
+                   rows: list[T],\n) -> T:\n    return pick(rows)\n\n\n\
+                   type Rows[T = Fallback] = list[T]\n";
+        let extracted = extract_one("m.py", src);
+        assert!(extracted.classes.iter().any(|class| class.name == "Box"), "the class is indexed");
+        assert!(extracted.info.mentions.contains_key("pick"), "so is the code after the default");
+        assert!(extracted.info.mentions.contains_key("Fallback"), "and the default itself");
+    }
+
+    #[test]
+    fn only_a_type_parameter_default_is_tolerated() {
+        for src in [
+            "class Box[T = int]:\n    def (:\n",
+            "class Box[T int]:\n    pass\n",
+            "class Box[T = int = str]:\n    pass\n",
+            "x = d[T = int]\n",
+            "def f(:\n    pass\n",
+        ] {
+            assert!(extract("m.py", src, &[], &Config::default()).is_err(), "skipped: {src}");
+        }
     }
 }
