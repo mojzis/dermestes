@@ -113,6 +113,11 @@ impl Callers<'_> {
                 continue;
             }
             let never_overridden = default_key.as_ref() == Some(&key);
+            // One caller passing a value is that caller's decision, spelled at
+            // the call site on purpose (amendment 6).
+            if !never_overridden && prod < 2 {
+                continue;
+            }
             let value = if never_overridden {
                 default.map(|value| value.text.clone())
             } else {
