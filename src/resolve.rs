@@ -40,6 +40,10 @@ pub struct Resolver<'a> {
     modules: HashMap<&'a str, Option<usize>>,
     /// Every proper dotted prefix of a module name: the namespace packages.
     namespaces: HashSet<&'a str>,
+    /// Every proper dotted suffix of a module name (`jira.api` of
+    /// `scripts.jira.api`): what the module is imported as when its parent
+    /// directory is on `sys.path`.
+    suffixes: HashSet<&'a str>,
 }
 
 impl<'a> Resolver<'a> {
@@ -57,7 +61,11 @@ impl<'a> Resolver<'a> {
             .keys()
             .flat_map(|name| name.match_indices('.').map(|(end, _)| &name[..end]))
             .collect();
-        Self { index, modules, namespaces }
+        let suffixes = modules
+            .keys()
+            .flat_map(|name| name.match_indices('.').map(|(dot, _)| &name[dot + 1..]))
+            .collect();
+        Self { index, modules, namespaces, suffixes }
     }
 
     /// Resolve `parts` (e.g. `["core", "sinks", "Sink"]`) in `file`'s module scope.
@@ -138,7 +146,12 @@ impl<'a> Resolver<'a> {
             // Not in the repository: a namespace package or a third-party module.
             None if self.modules.contains_key(submodule.as_str()) => Target::Module(submodule),
             None if self.namespaces.contains(module) => Target::Unknown,
-            None => well_known(module, name),
+            None => match well_known(module, name) {
+                // `from jira import api` with `scripts/` on `sys.path` is
+                // `scripts.jira.api`: it may be a repository definition.
+                Target::External if self.suffixes.contains(module) => Target::Unknown,
+                target => target,
+            },
         }
     }
 }
@@ -204,6 +217,28 @@ mod tests {
         assert_eq!(resolver.dotted(0, &parts("Protocol")), Target::Protocol, "Protocol");
         assert_eq!(resolver.dotted(0, &parts("Generic")), Target::Object, "Generic");
         assert_eq!(resolver.dotted(0, &parts("BaseModel")), Target::External, "third party");
+    }
+
+    #[test]
+    fn module_on_a_sys_path_dir_is_unknown_not_external() {
+        let (_dir, index) = index(&[
+            ("scripts/__init__.py", ""),
+            ("scripts/jira/__init__.py", ""),
+            ("scripts/jira/api.py", "def view(): ...\n"),
+            ("pkg/__init__.py", ""),
+            ("pkg/typing.py", ""),
+            (
+                "m.py",
+                "from jira import api\nfrom jira.api import view\n\
+                 from typing import Protocol\nfrom requests import get\n",
+            ),
+        ]);
+        let resolver = Resolver::new(&index);
+        let m = index.files.iter().position(|f| f.relative == "m.py").expect("m");
+        assert_eq!(resolver.dotted(m, &parts("api.view")), Target::Unknown, "jira is scripts.jira");
+        assert_eq!(resolver.dotted(m, &parts("view")), Target::Unknown, "from the suffix module");
+        assert_eq!(resolver.dotted(m, &parts("Protocol")), Target::Protocol, "well-known first");
+        assert_eq!(resolver.dotted(m, &parts("get")), Target::External, "no repo module ends so");
     }
 
     #[test]

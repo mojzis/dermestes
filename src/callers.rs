@@ -216,6 +216,22 @@ impl<'a> Callers<'a> {
         self.resolver.local(file, name)
     }
 
+    /// Whether `name` is bound anywhere Python would look it up from `scope`.
+    /// An unknown name nothing binds is a builtin.
+    fn binds(&self, file: usize, mut scope: usize, name: &str) -> bool {
+        let info = &self.index.files[file];
+        while scope != 0 {
+            let current = &info.scopes[scope];
+            if current.class.is_none()
+                && (current.defs.contains_key(name) || current.bindings.contains_key(name))
+            {
+                return true;
+            }
+            scope = current.parent;
+        }
+        info.top.contains_key(name) || info.bindings.contains_key(name)
+    }
+
     pub(crate) fn resolve_parts(&self, file: usize, scope: usize, parts: &[String]) -> Target {
         let Some((head, rest)) = parts.split_first() else { return Target::Unknown };
         let head = self.resolve_name(file, scope, head);
@@ -243,8 +259,12 @@ impl<'a> Callers<'a> {
             Callee::Name(name) => match self.resolve_name(call.file, call.scope, name) {
                 Target::Function(id) => Resolved::Function(id, 0),
                 Target::Class(class) => init(class),
-                // A star import may have brought the name in.
-                Target::Unknown if self.index.files[call.file].has_star_import => {
+                // A star import may have brought the name in, or an import or
+                // definition binds it to something we cannot pin down.
+                Target::Unknown
+                    if self.index.files[call.file].has_star_import
+                        || self.binds(call.file, call.scope, name) =>
+                {
                     Resolved::Possible(name)
                 }
                 _ => Resolved::Nothing,
