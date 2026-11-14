@@ -646,12 +646,31 @@ impl<'s> Walker<'s> {
         })
     }
 
-    /// An import binds at module level, or locally inside a function.
+    /// An import binds at module level, or locally inside a function. A name
+    /// imported from two places (a `try`/`except ImportError` fallback) may be
+    /// either, so it is unknown.
     fn bind(&mut self, local: &str, binding: Binding) {
+        use std::collections::hash_map::Entry;
         if self.scope == 0 {
-            self.info.bindings.insert(local.to_owned(), binding);
+            match self.info.bindings.entry(local.to_owned()) {
+                Entry::Vacant(slot) => {
+                    slot.insert(binding);
+                }
+                Entry::Occupied(mut slot) if *slot.get() != binding => {
+                    slot.insert(Binding::Unknown);
+                }
+                Entry::Occupied(_) => {}
+            }
         } else {
-            self.info.scopes[self.scope].bindings.insert(local.to_owned(), Some(binding));
+            match self.info.scopes[self.scope].bindings.entry(local.to_owned()) {
+                Entry::Vacant(slot) => {
+                    slot.insert(Some(binding));
+                }
+                Entry::Occupied(mut slot) if slot.get().as_ref() != Some(&binding) => {
+                    slot.insert(None);
+                }
+                Entry::Occupied(_) => {}
+            }
         }
     }
 
@@ -908,6 +927,18 @@ mod tests {
         assert_eq!(bindings["H"], symbol("f", "G"), "from-import alias");
         assert_eq!(bindings["I"], symbol("f", "I"), "plain from-import");
         assert_eq!(bindings["Y"], symbol("pkg.x", "Y"), "relative import from src root");
+    }
+
+    #[test]
+    fn a_name_imported_from_two_places_is_unknown() {
+        let src = "try:\n    from fast import units\nexcept ImportError:\n    from slow import units\n\
+                   try:\n    import ujson as json\nexcept ImportError:\n    import ujson as json\n\
+                   def f():\n    try:\n        from a import g\n    except ImportError:\n        from b import g\n";
+        let info = extract_one("m.py", src).info;
+        assert_eq!(info.bindings["units"], Binding::Unknown, "fast or slow");
+        assert_eq!(info.bindings["json"], Binding::Module("ujson".into()), "the same both times");
+        let local = info.scopes.iter().find_map(|scope| scope.bindings.get("g"));
+        assert_eq!(local, Some(&None), "a or b, inside a function");
     }
 
     #[test]

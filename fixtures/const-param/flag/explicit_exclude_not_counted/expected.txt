@@ -1,5 +1,4 @@
 const-param pkg/core.py:1 fetch
   calls: 1 prod, 0 test
-  url: always "x"
   retries: default 3 never overridden
-  suggest: drop url (and the argument at pkg/app.py:5), use "x" inline; drop retries, use 3 inline
+  suggest: drop retries, use 3 inline

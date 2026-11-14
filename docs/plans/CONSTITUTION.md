@@ -57,7 +57,8 @@ Definitions:
 
   Two arguments that merely read the same (`conn` at two sites) are never "the same
   value", and neither is a constant a test patches by string. One call site is
-  enough. `Class(...)` calls count as calls to `__init__`. An
+  enough for a default never overridden; a literal or constant passed explicitly
+  needs at least 2 production call sites (amendment 6). `Class(...)` calls count as calls to `__init__`. An
   explicit literal equal to the default counts as not overriding it. A test call that
   passes a different value counts as variation, so the check stays silent.
 - **pass-through.** Three forms (amendment 2 folded `one-caller` into this check;
@@ -288,3 +289,23 @@ From the 2026-10-14 recall prototype (`~/git/pp/dermestes/recall-build-prompt.md
   binds `TOOL_NAME`. A constant bound at many sites (introspect `_get_read_connection`, 8 callers),
   with a literal as well (`_create_session_stats`), or by a public wrapper (dlt `generate_dlt_id`,
   which owns the ID-length convention) is a reasonable wrapper.
+
+### Amendment 6 (2026-11-14)
+
+From a hand-triaged `--all` run of 0.1.2 on a ~20-package private monorepo
+(issue #12): 199 `const-param` findings, each applied or rejected with a reason.
+
+- **`same-literal` needs 2 production call sites.** A value passed explicitly by
+  exactly one production call site is that caller's decision, spelled there on
+  purpose (a section name, a timeout its sibling helpers also take, a column
+  name for a generic helper). Inlining it moves a caller's decision into the
+  callee. Reason: single-caller `same-literal` was 10/64 useful (16 %) and about
+  half of all rejections; `never-overridden` was 42 % with one caller and 85 %
+  with 4+. `never-overridden` keeps "one call site is enough": the callee's own
+  default is what every caller gets.
+- **A call through an import that may be a repository module is a possible
+  caller** (issue #11). A module outside the repository whose dotted path is a
+  suffix of a repository module (`from jira import api`, run with `scripts/` on
+  `sys.path`), and a name imported from two places (a `try`/`except ImportError`
+  fallback), are unknown, not external. Already required by "unknown means
+  silent"; recorded here because both cases produced breaking suggestions.

@@ -47,7 +47,8 @@ production code mentions the name; `tests:` lists the test lines that do.
   one on a variable (`tr.done()`) that could bind silences the counters.
 - All are silent for functions used as values, decorated ones, overrides,
   overridden methods, methods of a class with a third-party base.
-- `const-param`: a variable or enum member is never "the same value".
+- `const-param`: a variable or enum member is never "the same value"; a
+  value passed explicitly by a single production call site is that caller's.
 - `pass-through`: any test caller vetoes it, as do a third-party target for a
   forward, a public wrapper of a private one, `*args`, a multi-statement body.
 - `dead-code`: callers that are themselves dead, a name only in prose or
