@@ -1,6 +1,7 @@
 # Summary
 
 [Introduction](index.md)
+[How it works](how-it-works.md)
 
 # Agent guide
 
